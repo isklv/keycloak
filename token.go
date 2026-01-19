@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/scbt-ecom/slogging"
+	"github.com/isklv/slogging"
 	"github.com/tidwall/gjson"
 )
 

@@ -7,7 +7,6 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/isklv/slogging v1.0.0
 	github.com/lestrrat-go/jwx/v2 v2.1.4
-	github.com/scbt-ecom/slogging v1.0.7
 	github.com/tidwall/gjson v1.18.0
 )
 
