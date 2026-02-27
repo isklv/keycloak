@@ -2,6 +2,7 @@ package keycloak
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -62,6 +63,36 @@ func (cl *Client) GinNeedRole(requiredRoles ...string) gin.HandlerFunc {
 				slogging.StringAttr("url", c.Request.URL.String()))
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
+		}
+
+		expired, err := IsTokenExpired(accessToken)
+		if err != nil {
+			slog.Error("failed to get token expired",
+				slogging.ErrAttr(err))
+			c.Redirect(http.StatusFound, cl.RedirectURL)
+			c.Abort()
+			return
+		}
+
+		if expired {
+			refreshToken, haveRefresh := isHaveRefreshToken(c.Request)
+			if haveRefresh {
+				token, err := cl.RefreshToken(refreshToken)
+				if err == nil {
+					setupCookie(c.Writer, token)
+					accessToken = token.AccessToken
+					expired = false
+				} else {
+					slog.Error("failed to refresh token", slogging.ErrAttr(err))
+				}
+			}
+
+			if expired {
+				tokenURL := fmt.Sprintf("%s/auth/realms/%s/protocol/openid-connect/token", cl.BaseURL, cl.Realm)
+				c.Redirect(http.StatusFound, tokenURL)
+				c.Abort()
+				return
+			}
 		}
 
 		userRoles, err := introspectTokenRoles(accessToken, cl.ClientID)
