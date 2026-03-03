@@ -25,13 +25,6 @@ import (
 	"github.com/isklv/keycloak/webflow"
 )
 
-const (
-	KEYCLOAK_CLIENT_ID       = "clientid"
-	KEYCLOAK_REALM           = "realm"
-	KEYCLOAK_SERVER_BASE_URL = "https://keycloak"
-	KEYCLOAK_REDIRECT_URL    = "http://localhost:8081/auth"
-)
-
 func main() {
 	options := slogging.NewOptions()
 	options.SetLevel(slogging.LevelDebug.String())
