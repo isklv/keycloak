@@ -1,0 +1,38 @@
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.5.4
+    container_name: keycloak
+    command: ["start-dev"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_RELATIVE_PATH: /auth
+    ports:
+      - "8080:8080"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: keycloak-test-app
+    environment:
+      KEYCLOAK_AUTH_URL: http://localhost:8080/auth
+      KEYCLOAK_BACKEND_AUTH_URL: http://keycloak:8080/auth
+      KEYCLOAK_REALM: test
+      KEYCLOAK_CLIENT_ID: web
+      KEYCLOAK_CLIENT_SECRET: ""
+      APP_BASE_URL: http://localhost:3000
+      APP_LISTEN_ADDR: :3000
+    depends_on:
+      - keycloak
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app:Z
+      - go_cache:/app/tmp
+
+volumes:
+  keycloak-data:
+  go_cache:

@@ -27,35 +27,54 @@ keycloakServer := keycloak.NewClient(keycloak.Config{
 ```
 ## Authorization ##
 ### Client ###
-#### Native ####
+#### Chi ####
 ```
-http.HandleFunc("/auth", keycloakClient.AuthHandlerFunc)
+// cmd/server/main.go
+package main
 
-enricherRoles := keycloakClient.NeedRole("exampleRole1", "exampleRole2")
-http.Handle("/rules", enricherRoles(http.HandlerFunc(sad)))
+import (
+    "context"
+    "log"
+    "net/http"
+    "time"
 
-http.ListenAndServe(":8080", nil)
+    "github.com/go-chi/chi/v5"
+    "github.com/go-chi/chi/v5/middleware"
+
+    authChi "github.com/isklv/keycloak/auth"
+	chiMW "github.com/isklv/keycloak/chi"
+)
+
+func main() {
+    <!-- cfg := auth.Config{
+
+    } -->
+
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    cfg := keycloak.Config{ /* ... */ }
+
+	validator, _ := jwt.NewValidator(ctx, cfg)
+
+	authChi := chiMW.New(chiMW.Config{
+		Validator: validator,
+	})
+
+	r := chi.NewRouter()
+	r.Use(authChi.Auth())
+	r.Route("/admin", func(r chi.Router) {
+		r.Use(authChi.RequireRealmRole("admin"))
+		r.Get("/", handler)
+	})
+
+    log.Println("listening on :8080")
+    if err := http.ListenAndServe(":8080", r); err != nil {
+        log.Fatal(err)
+    }
+}
 ```
-#### Mux ####
-```
-r := mux.NewRouter()
-r.HandleFunc("/auth", keycloakClient.AuthHandlerFunc)
 
-rules := r.Path("/rules").Subrouter()
-rules.Handle("/", ruleGetExampleHandler)
-
-rules.Use(keycloakClient.NeedRole("exampleRole1", "exampleRole2"))
-```
-#### Gin ####
-```
-r := gin.Default()
-r.Handle(http.MethodGet, "/auth", keycloakClient.GinAuthHandlerFunc)
-
-rules := r.Group("/rules")
-rules.Handle(http.MethodGet, "/", ruleGetExampleHandler)
-
-rules.Use(keycloakClient.GinNeedRole("exampleRole1", "exampleRole2"))
-```
 ### Server ###
 ```
 package main
@@ -109,3 +128,21 @@ api := r.PathPrefix("/api").Subrouter()
 api.Use(tc.NeedTokenRole("exampleRole1", "exampleRole1"))
 api.HandleFunc("/", getExampleHandler)
 ```
+
+## Test Keycloak ###
+1. Create realm `test`
+2. Create Client with name `web`
+3. Set Valid redirect URIs `http://localhost:3000/callback` in Client name `web`
+4. Create user and set password in Credentials tab
+5. Create in client `web` `client role` `read` and `write` and `test`
+6. Add to user from step 3 `client role` `read` and `test`
+7. Try to login
+
+## Test Keycloak api2api ###
+1. Create Client with name `svc`
+2. Set Client authentication=on and Service account roles=on in Capavility config and click Save
+3. Select tab `Credentials` and copy Client Secret
+4. Set to client secret in main.go to config api2api
+5. Create in Realm roles `api_v1`
+5. Add to client `svc` in tab `Service account roles` realm role `api_v1`
+6. Test it
