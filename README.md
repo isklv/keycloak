@@ -1,6 +1,6 @@
 # Getting #
 ```
-go get -u github.com/isklv/keycloak
+go get -u github.com/isklv/keycloak/v2
 ```
 
 ## Example ##
@@ -18,11 +18,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/isklv/keycloak"
-	"github.com/isklv/keycloak/auth"
-	chiweb "github.com/isklv/keycloak/chi"
-	"github.com/isklv/keycloak/clientcred"
-	"github.com/isklv/keycloak/webflow"
+	"github.com/isklv/keycloak/v2"
+	"github.com/isklv/keycloak/v2/auth"
+	chiweb "github.com/isklv/keycloak/v2/chi"
+	"github.com/isklv/keycloak/v2/clientcred"
+	"github.com/isklv/keycloak/v2/webflow"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-module github.com/isklv/keycloak
+module github.com/isklv/keycloak/v2
 
 go 1.23.0
 
