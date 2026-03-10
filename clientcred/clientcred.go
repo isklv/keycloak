@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/isklv/keycloak"
-	"github.com/isklv/keycloak/tokenutil"
+	"github.com/isklv/keycloak/v2"
+	"github.com/isklv/keycloak/v2/tokenutil"
 )
 
 type Token = tokenutil.CommonToken

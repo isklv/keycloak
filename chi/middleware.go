@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/isklv/keycloak"
-	"github.com/isklv/keycloak/auth"
-	"github.com/isklv/keycloak/webflow"
+	"github.com/isklv/keycloak/v2"
+	"github.com/isklv/keycloak/v2/auth"
+	"github.com/isklv/keycloak/v2/webflow"
 	"github.com/isklv/slogging"
 )
 

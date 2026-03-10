@@ -7,7 +7,7 @@ import (
 
 	keyfunc "github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/isklv/keycloak"
+	"github.com/isklv/keycloak/v2"
 )
 
 type Service struct {

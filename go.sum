@@ -12,6 +12,8 @@ github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63Y
 github.com/golang-jwt/jwt/v5 v5.3.1/go.mod h1:fxCRLWMO43lRc8nhHWY6LGqRcf+1gQWArsqaEUEa5bE=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
+github.com/isklv/keycloak/v2 v2.0.1 h1:AYgW5+8hk3dyGAhjYsQb9A1d4DjcdsE/qZcc+UZ7gx8=
+github.com/isklv/keycloak/v2 v2.0.1/go.mod h1:0mUOZ5ULIGMyuDzxCk1TtkvlC/xasvfc40l9lGwJj54=
 github.com/isklv/slogging v1.0.1 h1:uWeqGVIzk/zBDgh+JS72sAnr8fTS2OMusxjgbQd/Vjo=
 github.com/isklv/slogging v1.0.1/go.mod h1:97ZMypA8WQHY+puAMaScDNwB3Su34h0rER/3ZCsYoDs=
 github.com/samber/lo v1.44.0 h1:5il56KxRE+GHsm1IR+sZ/6J42NODigFiqCWpSc2dybA=

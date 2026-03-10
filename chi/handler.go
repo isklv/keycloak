@@ -3,8 +3,8 @@ package chi
 import (
 	"net/http"
 
-	"github.com/isklv/keycloak/auth"
-	"github.com/isklv/keycloak/webflow"
+	"github.com/isklv/keycloak/v2/auth"
+	"github.com/isklv/keycloak/v2/webflow"
 	"github.com/isklv/slogging"
 )
 

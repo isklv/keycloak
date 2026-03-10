@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/isklv/keycloak"
-	"github.com/isklv/keycloak/tokenutil"
+	"github.com/isklv/keycloak/v2"
+	"github.com/isklv/keycloak/v2/tokenutil"
 	"github.com/isklv/slogging"
 )
 
