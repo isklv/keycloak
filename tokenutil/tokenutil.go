@@ -39,6 +39,10 @@ func ParseTokenResponse(resp *http.Response) (*CommonToken, error) {
 		return nil, err
 	}
 
+	if tr.AccessToken == "" {
+		return nil, fmt.Errorf("missing access_token in response")
+	}
+
 	now := time.Now()
 
 	return &CommonToken{

@@ -2,6 +2,7 @@ package webflow
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -67,6 +68,10 @@ func (f *Flow) AuthCodeURL(state string) string {
 }
 
 func (f *Flow) ExchangeCode(ctx context.Context, code string) (*tokenutil.CommonToken, error) {
+	if code == "" {
+		return nil, fmt.Errorf("authorization code is required")
+	}
+
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)

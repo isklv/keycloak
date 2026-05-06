@@ -83,8 +83,13 @@ func (m *Middleware) RequireAnyRealmRole(roles ...string) func(next http.Handler
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, ok := auth.FromContext(r.Context())
+			if !ok || claims == nil {
+				slogging.L(r.Context()).Debug("RequireAnyRealmRole: no claims in context")
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 			slogging.L(r.Context()).Debug("RequireAnyRealmRole", slogging.AnyAttr("roles", claims.RealmAccess.Roles))
-			if !ok || !claims.HasAnyRealmRole(roles...) {
+			if !claims.HasAnyRealmRole(roles...) {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
@@ -101,7 +106,11 @@ func (m *Middleware) RequireAnyClientRole(roles ...string) func(next http.Handle
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, ok := auth.FromContext(r.Context())
-			if !ok || !claims.HasAnyClientRole(m.cfg.ClientID, roles...) {
+			if !ok || claims == nil {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			if !claims.HasAnyClientRole(m.cfg.ClientID, roles...) {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
@@ -128,6 +137,9 @@ func currentURL(r *http.Request) string {
 	u := *r.URL
 	u.Scheme = ""
 	u.Host = ""
+	if u.String() == "" {
+		return "/"
+	}
 	return u.String()
 }
 
@@ -138,9 +150,9 @@ func extractBearerToken(r *http.Request) (string, error) {
 	}
 
 	parts := strings.SplitN(authz, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || strings.TrimSpace(parts[1]) == "" {
 		return "", http.ErrNoCookie
 	}
 
-	return parts[1], nil
+	return strings.TrimSpace(parts[1]), nil
 }
