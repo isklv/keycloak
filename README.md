@@ -1,4 +1,17 @@
-# Getting #
+# Keycloak Go Client
+
+> **⚠️ This branch (main) is deprecated.**
+> **Use [v2 branch](https://github.com/isklv/keycloak/tree/v2) instead.**
+>
+> ```bash
+> go get -u github.com/isklv/keycloak/v2
+> ```
+> v2 offers: chi middleware, PKCE web flow, client credentials, audience+azp validation,
+> token masking in logs, informative 403 errors, optional `BackendAuthURL`.
+
+---
+
+# Getting (v1 — deprecated)
 ```
 go get -u github.com/isklv/keycloak
 ```
