@@ -19,8 +19,8 @@ func TestConfig_Issuer(t *testing.T) {
 
 func TestConfig_TokenURL(t *testing.T) {
 	cfg := Config{
-		BackendAuthURL: "http://localhost:8080/auth",
-		Realm:          "test",
+		AuthURL: "http://localhost:8080/auth",
+		Realm:   "test",
 	}
 
 	tokenURL := cfg.TokenURL()
@@ -30,10 +30,42 @@ func TestConfig_TokenURL(t *testing.T) {
 	}
 }
 
+func TestConfig_BackendAuthURLFallback(t *testing.T) {
+	t.Run("FallbackToAuthURL", func(t *testing.T) {
+		cfg := Config{
+			AuthURL: "http://public.example.com/auth",
+			Realm:   "myrealm",
+		}
+		// BackendAuthURL not set — should fall back to AuthURL
+		backend := cfg.IssuerBackend()
+		expected := "http://public.example.com/auth/realms/myrealm"
+		if backend != expected {
+			t.Errorf("Expected backend '%s', got '%s'", expected, backend)
+		}
+	})
+
+	t.Run("OverrideBackendAuthURL", func(t *testing.T) {
+		cfg := Config{
+			AuthURL:        "http://public.example.com/auth",
+			BackendAuthURL: "http://internal-keycloak:8080",
+			Realm:          "myrealm",
+		}
+		public := cfg.Issuer()
+		backend := cfg.IssuerBackend()
+
+		if public != "http://public.example.com/auth/realms/myrealm" {
+			t.Errorf("Expected public issuer, got '%s'", public)
+		}
+		if backend != "http://internal-keycloak:8080/realms/myrealm" {
+			t.Errorf("Expected internal backend, got '%s'", backend)
+		}
+	})
+}
+
 func TestConfig_JWKSURL(t *testing.T) {
 	cfg := Config{
-		BackendAuthURL: "http://localhost:8080/auth",
-		Realm:          "test",
+		AuthURL: "http://localhost:8080/auth",
+		Realm:   "test",
 	}
 
 	jwksURL := cfg.JWKSURL()
@@ -49,10 +81,11 @@ func TestConfig_WithTrailingSlash(t *testing.T) {
 		Realm:   "test",
 	}
 
-	// Note: Current implementation doesn't strip trailing slashes
+	// Trailing slashes are trimmed
 	issuer := cfg.Issuer()
-	if issuer != "http://localhost:8080/auth//realms/test" {
-		t.Errorf("Expected issuer 'http://localhost:8080/auth//realms/test' (with double slash), got '%s'", issuer)
+	expected := "http://localhost:8080/auth/realms/test"
+	if issuer != expected {
+		t.Errorf("Expected issuer '%s', got '%s'", expected, issuer)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -73,10 +74,13 @@ func TestParseTokenResponse(t *testing.T) {
 		}))
 		defer server.Close()
 
-		resp, _ := http.Get(server.URL)
+		resp, err := http.Get(server.URL)
+		if err != nil {
+			t.Fatalf("Failed to get test response: %v", err)
+		}
 		defer resp.Body.Close()
 
-		_, err := ParseTokenResponse(resp)
+		_, err = ParseTokenResponse(resp)
 		if err == nil {
 			t.Error("Expected error for missing access_token")
 		}
@@ -89,10 +93,13 @@ func TestParseTokenResponse(t *testing.T) {
 		}))
 		defer server.Close()
 
-		resp, _ := http.Get(server.URL)
+		resp, err := http.Get(server.URL)
+		if err != nil {
+			t.Fatalf("Failed to get test response: %v", err)
+		}
 		defer resp.Body.Close()
 
-		_, err := ParseTokenResponse(resp)
+		_, err = ParseTokenResponse(resp)
 		if err == nil {
 			t.Error("Expected error for invalid JSON")
 		}
@@ -105,10 +112,13 @@ func TestParseTokenResponse(t *testing.T) {
 		}))
 		defer server.Close()
 
-		resp, _ := http.Get(server.URL)
+		resp, err := http.Get(server.URL)
+		if err != nil {
+			t.Fatalf("Failed to get test response: %v", err)
+		}
 		defer resp.Body.Close()
 
-		_, err := ParseTokenResponse(resp)
+		_, err = ParseTokenResponse(resp)
 		if err == nil {
 			t.Error("Expected error for empty body")
 		}
@@ -121,10 +131,13 @@ func TestParseTokenResponse(t *testing.T) {
 		}))
 		defer server.Close()
 
-		resp, _ := http.Get(server.URL)
+		resp, err := http.Get(server.URL)
+		if err != nil {
+			t.Fatalf("Failed to get test response: %v", err)
+		}
 		defer resp.Body.Close()
 
-		_, err := ParseTokenResponse(resp)
+		_, err = ParseTokenResponse(resp)
 		if err == nil {
 			t.Error("Expected error for non-2xx status")
 		}
@@ -148,6 +161,37 @@ func TestParseTokenResponse_ReadError(t *testing.T) {
 type errorReader struct{}
 func (e *errorReader) Read(p []byte) (int, error) {
 	return 0, io.ErrUnexpectedEOF
+}
+
+func TestMaskToken(t *testing.T) {
+	t.Run("LongToken", func(t *testing.T) {
+		token := "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4JIPj"
+		masked := MaskToken(token)
+		if masked == token {
+			t.Error("Masked token should not equal original")
+		}
+		if !strings.HasPrefix(masked, token[:10]) {
+			t.Errorf("Masked token should start with first 10 chars, got: %s", masked)
+		}
+		if !strings.HasSuffix(masked, token[len(token)-6:]) {
+			t.Errorf("Masked token should end with last 6 chars, got: %s", masked)
+		}
+	})
+
+	t.Run("ShortToken", func(t *testing.T) {
+		token := "short"
+		masked := MaskToken(token)
+		if masked != "<token>" {
+			t.Errorf("Short token should be '<token>', got: %s", masked)
+		}
+	})
+
+	t.Run("EmptyToken", func(t *testing.T) {
+		masked := MaskToken("")
+		if masked != "<token>" {
+			t.Errorf("Empty token should be '<token>', got: %s", masked)
+		}
+	})
 }
 
 

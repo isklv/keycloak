@@ -28,8 +28,10 @@ func NewService(ctx context.Context, cfg keycloak.Config) (*Service, error) {
 }
 
 var (
-	ErrInvalidToken = errors.New("invalid token")
-	ErrUnauthorized = errors.New("unauthorized")
+	ErrInvalidToken    = errors.New("invalid token")
+	ErrUnauthorized    = errors.New("unauthorized")
+	ErrInvalidAudience = errors.New("invalid audience")
+	ErrInvalidAZP      = errors.New("invalid authorized party (azp)")
 )
 
 func (s *Service) ParseAndValidateToken(ctx context.Context, raw string) (*Claims, error) {
@@ -40,6 +42,7 @@ func (s *Service) ParseAndValidateToken(ctx context.Context, raw string) (*Claim
 	parser := jwt.NewParser(
 		jwt.WithValidMethods([]string{"RS256"}),
 		jwt.WithIssuer(s.cfg.Issuer()),
+		jwt.WithAudience(s.cfg.ClientID),
 	)
 
 	token, err := parser.ParseWithClaims(raw, &Claims{}, s.jwks.Keyfunc)
@@ -50,6 +53,11 @@ func (s *Service) ParseAndValidateToken(ctx context.Context, raw string) (*Claim
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
 		return nil, ErrInvalidToken
+	}
+
+	// Validate azp (authorized party) — must match our client ID
+	if claims.AuthorizedParty != "" && claims.AuthorizedParty != s.cfg.ClientID {
+		return nil, fmt.Errorf("%w: expected %q, got %q", ErrInvalidAZP, s.cfg.ClientID, claims.AuthorizedParty)
 	}
 
 	return claims, nil

@@ -55,3 +55,12 @@ func ParseTokenResponse(resp *http.Response) (*CommonToken, error) {
 		IDToken:          tr.IDToken,
 	}, nil
 }
+
+// MaskToken hides the middle of a token/JWT for safe logging.
+// Keeps the first 10 and last 6 characters: "eyJhbG...abcd12"
+func MaskToken(token string) string {
+	if len(token) <= 20 {
+		return "<token>"
+	}
+	return token[:10] + "..." + token[len(token)-6:]
+}

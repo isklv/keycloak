@@ -246,8 +246,30 @@ type CommonToken struct {
 
 1. **Algorithm**: RS256 only (asymmetric, no symmetric secrets)
 2. **Issuer**: Validated against `cfg.Issuer()` (Keycloak realm URL)
-3. **Signature**: Verified against JWKS from `{issuer}/.well-known/openid-configuration/jwks`
-4. **Expiration**: Checked via `RegisteredClaims.ExpiresAt`
+3. **Audience**: Validated via `jwt.WithAudience(cfg.ClientID)` — rejects tokens not intended for this client
+4. **Signature**: Verified against JWKS from `{issuer}/.well-known/openid-configuration/jwks`
+5. **Expiration**: Checked via `RegisteredClaims.ExpiresAt`
+6. **Authorized Party (azp)**: If present, must match `cfg.ClientID` — prevents token reuse across clients
+
+### Token Masking
+
+`tokenutil.MaskToken()` — safely logs tokens without exposing secrets:
+```go
+tokenutil.MaskToken("eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4JIPj")
+// → "eyJhbGciOi...yP4JIPj"  (first 10 + "..." + last 6)
+```
+
+Applied automatically in `chi/middleware.go` debug logs.
+
+### Error Messages
+
+Middleware returns descriptive HTTP errors instead of generic strings:
+
+| Endpoint | Before | After |
+|----------|--------|-------|
+| `AuthBearer` (401) | `invalid token` | `missing or invalid Authorization header — expected 'Bearer <token>'` |
+| `RequireAnyRealmRole` (403) | `forbidden` | `forbidden — missing required realm role: admin (have: user, viewer)` |
+| `RequireAnyClientRole` (403) | `forbidden` | `forbidden — missing required client role [web]: read, write (have: delete)` |
 
 ### JWKS Caching
 
@@ -340,4 +362,4 @@ keycloak/
 
 ---
 
-*Generated: 2026-05-06 | Version: v2*
+*Updated: 2026-06-03 | Version: v2.1.0*

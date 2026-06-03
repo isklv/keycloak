@@ -1,6 +1,7 @@
 package chi
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/isklv/keycloak/v2"
 	"github.com/isklv/keycloak/v2/auth"
+	"github.com/isklv/keycloak/v2/tokenutil"
 	"github.com/isklv/keycloak/v2/webflow"
 	"github.com/isklv/slogging"
 )
@@ -56,16 +58,16 @@ func (m *Middleware) AuthBearer() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			raw, err := extractBearerToken(r)
 			if err != nil {
-				http.Error(w, "missing or invalid Authorization header", http.StatusUnauthorized)
+				http.Error(w, "missing or invalid Authorization header — expected 'Bearer <token>'", http.StatusUnauthorized)
 				return
 			}
 
-			slogging.L(r.Context()).Debug("AuthBearer", slogging.StringAttr("response", raw))
+			slogging.L(r.Context()).Debug("AuthBearer", slogging.StringAttr("token", tokenutil.MaskToken(raw)))
 
 			claims, err := m.as.ParseAndValidateToken(r.Context(), raw)
 			if err != nil {
 				slogging.L(r.Context()).Error("ParseAndValidateToken", slogging.ErrAttr(err))
-				http.Error(w, "invalid token", http.StatusUnauthorized)
+				http.Error(w, "invalid or expired token", http.StatusUnauthorized)
 				return
 			}
 
@@ -85,12 +87,17 @@ func (m *Middleware) RequireAnyRealmRole(roles ...string) func(next http.Handler
 			claims, ok := auth.FromContext(r.Context())
 			if !ok || claims == nil {
 				slogging.L(r.Context()).Debug("RequireAnyRealmRole: no claims in context")
-				http.Error(w, "forbidden", http.StatusForbidden)
+				http.Error(w, fmt.Sprintf("forbidden — missing required realm role: %s", strings.Join(roles, ", ")),
+					http.StatusForbidden)
 				return
 			}
-			slogging.L(r.Context()).Debug("RequireAnyRealmRole", slogging.AnyAttr("roles", claims.RealmAccess.Roles))
+			slogging.L(r.Context()).Debug("RequireAnyRealmRole",
+				slogging.StringAttr("required", strings.Join(roles, ", ")),
+				slogging.StringAttr("have", strings.Join(claims.RealmAccess.Roles, ", ")))
 			if !claims.HasAnyRealmRole(roles...) {
-				http.Error(w, "forbidden", http.StatusForbidden)
+				http.Error(w, fmt.Sprintf("forbidden — missing required realm role: %s (have: %s)",
+					strings.Join(roles, ", "), strings.Join(claims.RealmAccess.Roles, ", ")),
+					http.StatusForbidden)
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -107,11 +114,22 @@ func (m *Middleware) RequireAnyClientRole(roles ...string) func(next http.Handle
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, ok := auth.FromContext(r.Context())
 			if !ok || claims == nil {
-				http.Error(w, "forbidden", http.StatusForbidden)
+				http.Error(w, fmt.Sprintf("forbidden — missing required client role: %s", strings.Join(roles, ", ")),
+					http.StatusForbidden)
 				return
 			}
+
+			// Collect actual client roles for the error message
+			ra, hasClient := claims.ResourceAccess[m.cfg.ClientID]
+			var haveRoles []string
+			if hasClient {
+				haveRoles = ra.Roles
+			}
+
 			if !claims.HasAnyClientRole(m.cfg.ClientID, roles...) {
-				http.Error(w, "forbidden", http.StatusForbidden)
+				http.Error(w, fmt.Sprintf("forbidden — missing required client role [%s]: %s (have: %s)",
+					m.cfg.ClientID, strings.Join(roles, ", "), strings.Join(haveRoles, ", ")),
+					http.StatusForbidden)
 				return
 			}
 			next.ServeHTTP(w, r)
