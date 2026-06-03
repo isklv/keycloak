@@ -28,10 +28,9 @@ func NewService(ctx context.Context, cfg keycloak.Config) (*Service, error) {
 }
 
 var (
-	ErrInvalidToken    = errors.New("invalid token")
-	ErrUnauthorized    = errors.New("unauthorized")
-	ErrInvalidAudience = errors.New("invalid audience")
-	ErrInvalidAZP      = errors.New("invalid authorized party (azp)")
+	ErrInvalidToken  = errors.New("invalid token")
+	ErrUnauthorized  = errors.New("unauthorized")
+	ErrInvalidAZP    = errors.New("invalid authorized party (azp)")
 )
 
 func (s *Service) ParseAndValidateToken(ctx context.Context, raw string) (*Claims, error) {
@@ -42,7 +41,6 @@ func (s *Service) ParseAndValidateToken(ctx context.Context, raw string) (*Claim
 	parser := jwt.NewParser(
 		jwt.WithValidMethods([]string{"RS256"}),
 		jwt.WithIssuer(s.cfg.Issuer()),
-		jwt.WithAudience(s.cfg.ClientID),
 	)
 
 	token, err := parser.ParseWithClaims(raw, &Claims{}, s.jwks.Keyfunc)

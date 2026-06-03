@@ -5,15 +5,18 @@ go get -u github.com/isklv/keycloak/v2
 
 ## Changelog
 
+### v2.1.1
+- **Fix:** Removed `jwt.WithAudience(clientID)` — `aud` claim can contain multiple services, strict match was too limiting
+- **Cleanup:** Removed unused `auth.ErrInvalidAudience` error
+
 ### v2.1.0
-- **Security:** JWT audience validation via `jwt.WithAudience(clientID)` — rejects tokens not intended for this client
 - **Security:** `azp` (authorized party) claim validation — rejects tokens where `azp` differs from `clientID`
 - **Security:** Token masking in logs — `tokenutil.MaskToken()` hides sensitive tokens (shows `eyJhbG...IPj` instead of raw JWT)
 - **Config:** `BackendAuthURL` is now optional — falls back to `AuthURL` when empty (no more redundant duplication)
 - **Config:** Trailing slashes on `AuthURL`/`BackendAuthURL` are automatically trimmed (no more `//realms/` URLs)
 - **Middleware:** Informative 403 errors — `forbidden — missing required realm role: admin (have: user)`
 - **Middleware:** Better 401 messages — `missing or invalid Authorization header — expected 'Bearer <token>'`
-- **New errors:** `auth.ErrInvalidAudience`, `auth.ErrInvalidAZP`
+- **New errors:** `auth.ErrInvalidAZP`
 - **Fix:** `go vet` warnings in test suite (unchecked `http.Get` errors)
 
 ## Example ##
