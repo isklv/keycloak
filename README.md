@@ -47,37 +47,34 @@ func main() {
 	defer cancel()
 
 	authURL := os.Getenv("KEYCLOAK_AUTH_URL")
-	authBackendURL := os.Getenv("KEYCLOAK_BACKEND_AUTH_URL")
 	realm := os.Getenv("KEYCLOAK_REALM")
 	clientID := os.Getenv("KEYCLOAK_CLIENT_ID")
+	clientSecret := os.Getenv("KEYCLOAK_CLIENT_SECRET")
 	baseURL := os.Getenv("APP_BASE_URL")
 	listenAddr := os.Getenv("APP_LISTEN_ADDR")
 
-	// init api2api
+	// api2api — BackendAuthURL optional, falls back to AuthURL if empty
 	cfgApi2Api := keycloak.Config{
-		Realm:          "test",
-		AuthURL:        authBackendURL,
-		BackendAuthURL: authBackendURL,
-		ClientID:       "svc",
-		ClientSecret:   "RZLHtv1Y6O3ekgewA9EHl9ppqovRo5nY",
+		AuthURL:        authURL,
+		// BackendAuthURL: "http://internal-keycloak:8080/auth", // optional override
+		Realm:        realm,
+		ClientID:     "svc",
+		ClientSecret: clientSecret,
 	}
 
-	asApi2Api, err := auth.NewService(
-		ctx,
-		cfgApi2Api,
-	)
+	asApi2Api, err := auth.NewService(ctx, cfgApi2Api)
 	if err != nil {
 		log.Error("Auth service error", slogging.ErrAttr(err))
 		os.Exit(1)
 	}
 	mwApi2Api := chiweb.New(asApi2Api, cfgApi2Api, nil)
 
-	// init webauth
+	// web auth
 	cfg := keycloak.Config{
 		AuthURL:        authURL,
-		BackendAuthURL: authBackendURL,
-		Realm:          realm,
-		ClientID:       clientID,
+		// BackendAuthURL: "...", // optional — only if internal URL differs
+		Realm:      realm,
+		ClientID:   clientID,
 	}
 
 	flow := webflow.New(
@@ -94,21 +91,13 @@ func main() {
 		nil,
 	)
 
-	as, err := auth.NewService(
-		ctx,
-		cfg,
-	)
+	as, err := auth.NewService(ctx, cfg)
 	if err != nil {
 		log.Error("Auth service error", slogging.ErrAttr(err))
 		os.Exit(1)
 	}
 
-	chiHandler := chiweb.NewHandler(
-		flow,
-		as,
-		"/",
-	)
-
+	chiHandler := chiweb.NewHandler(flow, as, "/")
 	mw := chiweb.New(as, cfg, flow)
 
 	r := chi.NewRouter()
@@ -121,7 +110,6 @@ func main() {
 	r.Get("/callback", chiHandler.HandleCallback)
 
 	r.Get("/api2api", func(w http.ResponseWriter, r *http.Request) {
-
 		ts := clientcred.NewTokenSource(cfgApi2Api, nil)
 
 		httpClient := &http.Client{
@@ -149,7 +137,6 @@ func main() {
 		body, _ := io.ReadAll(resp.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(body)
-
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {
@@ -163,11 +150,6 @@ func main() {
 				slogging.StringAttr("username", claims.PreferredUsername),
 				slogging.AnyAttr("roles", claims.RealmAccess),
 			)
-
-			if claims.AuthorizedParty != "svc" {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
 
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"ok": true}`))
