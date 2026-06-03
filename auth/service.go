@@ -53,9 +53,20 @@ func (s *Service) ParseAndValidateToken(ctx context.Context, raw string) (*Claim
 		return nil, ErrInvalidToken
 	}
 
-	// Validate azp (authorized party) — must match our client ID
-	if claims.AuthorizedParty != "" && claims.AuthorizedParty != s.cfg.ClientID {
-		return nil, fmt.Errorf("%w: expected %q, got %q", ErrInvalidAZP, s.cfg.ClientID, claims.AuthorizedParty)
+	// Validate azp (authorized party) if AuthorizedParties is configured.
+	// When empty (default), azp validation is skipped — useful for api2api
+	// integrations where tokens are issued to different clients.
+	if len(s.cfg.AuthorizedParties) > 0 && claims.AuthorizedParty != "" {
+		allowed := false
+		for _, azp := range s.cfg.AuthorizedParties {
+			if azp == claims.AuthorizedParty {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return nil, fmt.Errorf("%w: expected one of %v, got %q", ErrInvalidAZP, s.cfg.AuthorizedParties, claims.AuthorizedParty)
+		}
 	}
 
 	return claims, nil

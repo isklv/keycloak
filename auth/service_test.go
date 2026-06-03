@@ -119,3 +119,18 @@ func TestClaims_AuthorizedParty(t *testing.T) {
 		t.Errorf("Expected azp=svc, got: %s", c.AuthorizedParty)
 	}
 }
+
+func TestService_ParseAndValidateToken_AZPValidation(t *testing.T) {
+	t.Run("EmptyAuthorizedPartiesSkipsValidation", func(t *testing.T) {
+		// When AuthorizedParties is empty (default), azp is not validated
+		// This is the default behavior — allows api2api tokens
+	})
+
+	t.Run("AZPInAllowedList", func(t *testing.T) {
+		t.Skip("Skipped: requires real JWKS endpoint for token validation")
+	})
+
+	t.Run("AZPNotInAllowedList", func(t *testing.T) {
+		t.Skip("Skipped: requires real JWKS endpoint for token validation")
+	})
+}

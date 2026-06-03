@@ -5,6 +5,12 @@ go get -u github.com/isklv/keycloak/v2
 
 ## Changelog
 
+### v2.1.2
+- **Config:** `azp` validation is now configurable via `Config.AuthorizedParties []string`
+  - When empty (default): azp validation is skipped — works out of the box for api2api
+  - When non-empty: token's `azp` must be one of the listed values
+- **Migration:** If you relied on strict `azp == clientID` validation, set `AuthorizedParties: []string{clientID}`
+
 ### v2.1.1
 - **Fix:** Removed `jwt.WithAudience(clientID)` — `aud` claim can contain multiple services, strict match was too limiting
 - **Cleanup:** Removed unused `auth.ErrInvalidAudience` error

@@ -16,6 +16,13 @@ type Config struct {
 	Realm        string
 	RedirectURL  string // OAUTH
 	ClientSecret string // confidential / client credentials
+
+	// AuthorizedParties is a list of allowed azp (authorized party) values.
+	// When empty (default), azp validation is skipped.
+	// When non-empty, the token's azp claim must be one of the listed values.
+	// Useful for multi-service setups or api2api integration where tokens
+	// are issued to different clients.
+	AuthorizedParties []string
 }
 
 // backendBase returns the base URL for backend calls (token, JWKS).
