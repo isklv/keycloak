@@ -56,7 +56,10 @@ func (s *Service) ParseAndValidateToken(ctx context.Context, raw string) (*Claim
 	// Validate azp (authorized party) if AuthorizedParties is configured.
 	// When empty (default), azp validation is skipped — useful for api2api
 	// integrations where tokens are issued to different clients.
-	if len(s.cfg.AuthorizedParties) > 0 && claims.AuthorizedParty != "" {
+	if len(s.cfg.AuthorizedParties) > 0 {
+		if claims.AuthorizedParty == "" {
+			return nil, fmt.Errorf("%w: missing azp claim in token", ErrInvalidAZP)
+		}
 		allowed := false
 		for _, azp := range s.cfg.AuthorizedParties {
 			if azp == claims.AuthorizedParty {

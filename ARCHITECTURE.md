@@ -362,4 +362,4 @@ keycloak/
 
 ---
 
-*Updated: 2026-06-03 | Version: v2.1.0*
+*Updated: 2026-09-16 | Version: v2.2.0*

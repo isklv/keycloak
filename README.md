@@ -5,6 +5,16 @@ go get -u github.com/isklv/keycloak/v2
 
 ## Changelog
 
+### v2.2.0
+- **Security:** Full PKCE support (RFC 7636 / S256) in `webflow` (`GeneratePKCE`, `AuthCodeURLWithPKCE`, `ExchangeCodeWithPKCE`) and enabled by default in `chi.Handler`
+- **Security:** Login CSRF protection via cryptographic `state` generation and transient HTTPOnly cookie (`kc_at_txn`)
+- **Security:** Strict `azp` validation — tokens without an `azp` claim are rejected if `Config.AuthorizedParties` is configured
+- **Feature:** Added `chiHandler.HandleLogin` with automatic PKCE challenge, state generation, and safe return URL preservation
+- **Tests:** Complete local RSA keypair generation and mock JWKS server in test suite (unit test coverage >= 95%)
+
+### v2.1.3
+- **Deps:** Upgraded `github.com/isklv/slogging` to `v1.0.4` (sensitive data masking, graceful degradation)
+
 ### v2.1.2
 - **Config:** `azp` validation is now configurable via `Config.AuthorizedParties []string`
   - When empty (default): azp validation is skipped — works out of the box for api2api
@@ -111,11 +121,7 @@ func main() {
 
 	r := chi.NewRouter()
 
-	r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
-		state := "random-state"
-		http.Redirect(w, r, flow.AuthCodeURL(state), http.StatusFound)
-	})
-
+	r.Get("/login", chiHandler.HandleLogin)
 	r.Get("/callback", chiHandler.HandleCallback)
 
 	r.Get("/api2api", func(w http.ResponseWriter, r *http.Request) {

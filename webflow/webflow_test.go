@@ -204,3 +204,116 @@ func TestFlow_Accessors(t *testing.T) {
 		t.Errorf("Expected LoginURL='/login', got '%s'", flow.LoginURL())
 	}
 }
+
+func TestGeneratePKCE(t *testing.T) {
+	pkce, err := GeneratePKCE()
+	if err != nil {
+		t.Fatalf("GeneratePKCE failed: %v", err)
+	}
+
+	if len(pkce.Verifier) < 43 {
+		t.Errorf("Expected verifier length >= 43, got %d", len(pkce.Verifier))
+	}
+	if pkce.Challenge == "" {
+		t.Error("Expected non-empty challenge")
+	}
+	if pkce.Method != "S256" {
+		t.Errorf("Expected method S256, got %s", pkce.Method)
+	}
+
+	// Generating a second pair should produce unique values
+	pkce2, _ := GeneratePKCE()
+	if pkce.Verifier == pkce2.Verifier {
+		t.Error("Expected unique verifiers across calls")
+	}
+}
+
+func TestGenerateState(t *testing.T) {
+	state, err := GenerateState()
+	if err != nil {
+		t.Fatalf("GenerateState failed: %v", err)
+	}
+	if len(state) < 20 {
+		t.Errorf("Expected state length >= 20, got %d", len(state))
+	}
+
+	state2, _ := GenerateState()
+	if state == state2 {
+		t.Error("Expected unique state values")
+	}
+}
+
+func TestFlow_AuthCodeURL_WithPKCEAndScope(t *testing.T) {
+	cfg := keycloak.Config{
+		AuthURL:  "http://localhost:8080/auth",
+		Realm:    "test",
+		ClientID: "web",
+	}
+	flow := New(cfg, CookieConfig{}, "/login", "http://localhost:3000/callback", nil)
+
+	pkce, err := GeneratePKCE()
+	if err != nil {
+		t.Fatalf("GeneratePKCE failed: %v", err)
+	}
+
+	u := flow.AuthCodeURLWithPKCE("my-state", pkce.Challenge)
+	parsed, err := url.Parse(u)
+	if err != nil {
+		t.Fatalf("Invalid URL: %v", err)
+	}
+
+	q := parsed.Query()
+	if q.Get("code_challenge") != pkce.Challenge {
+		t.Errorf("Expected code_challenge=%s, got %s", pkce.Challenge, q.Get("code_challenge"))
+	}
+	if q.Get("code_challenge_method") != "S256" {
+		t.Errorf("Expected code_challenge_method=S256, got %s", q.Get("code_challenge_method"))
+	}
+	if q.Get("state") != "my-state" {
+		t.Errorf("Expected state=my-state, got %s", q.Get("state"))
+	}
+
+	// Test custom scope
+	uCustom := flow.AuthCodeURL("my-state", WithScope("openid custom_scope"))
+	parsedCustom, _ := url.Parse(uCustom)
+	if parsedCustom.Query().Get("scope") != "openid custom_scope" {
+		t.Errorf("Expected scope='openid custom_scope', got %s", parsedCustom.Query().Get("scope"))
+	}
+}
+
+func TestFlow_ExchangeCodeWithPKCE(t *testing.T) {
+	var receivedVerifier string
+
+	tokenEndpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm failed: %v", err)
+		}
+		receivedVerifier = r.FormValue("code_verifier")
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"access_token": "pkce-token",
+			"token_type": "Bearer",
+			"expires_in": 3600
+		}`))
+	}))
+	defer tokenEndpoint.Close()
+
+	cfg := keycloak.Config{
+		AuthURL:  tokenEndpoint.URL,
+		Realm:    "test",
+		ClientID: "web",
+	}
+	flow := New(cfg, CookieConfig{}, "/login", "http://localhost:3000/callback", nil)
+
+	token, err := flow.ExchangeCodeWithPKCE(context.Background(), "auth-code", "my-secret-verifier")
+	if err != nil {
+		t.Fatalf("ExchangeCodeWithPKCE failed: %v", err)
+	}
+	if token.AccessToken != "pkce-token" {
+		t.Errorf("Expected access token pkce-token, got %s", token.AccessToken)
+	}
+	if receivedVerifier != "my-secret-verifier" {
+		t.Errorf("Expected code_verifier=my-secret-verifier, got %s", receivedVerifier)
+	}
+}

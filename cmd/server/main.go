@@ -30,16 +30,17 @@ func main() {
 	authBackendURL := os.Getenv("KEYCLOAK_BACKEND_AUTH_URL")
 	realm := os.Getenv("KEYCLOAK_REALM")
 	clientID := os.Getenv("KEYCLOAK_CLIENT_ID")
+	clientSecret := os.Getenv("KEYCLOAK_CLIENT_SECRET")
 	baseURL := os.Getenv("APP_BASE_URL")
 	listenAddr := os.Getenv("APP_LISTEN_ADDR")
 
 	// init api2api
 	cfgApi2Api := keycloak.Config{
-		Realm:          "test",
+		Realm:          realm,
 		AuthURL:        authBackendURL,
 		BackendAuthURL: authBackendURL,
 		ClientID:       "svc",
-		ClientSecret:   "RZLHtv1Y6O3ekgewA9EHl9ppqovRo5nY",
+		ClientSecret:   clientSecret,
 	}
 
 	asApi2Api, err := auth.NewService(
@@ -93,11 +94,7 @@ func main() {
 
 	r := chi.NewRouter()
 
-	r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
-		state := "random-state"
-		http.Redirect(w, r, flow.AuthCodeURL(state), http.StatusFound)
-	})
-
+	r.Get("/login", chiHandler.HandleLogin)
 	r.Get("/callback", chiHandler.HandleCallback)
 
 	r.Get("/api2api", func(w http.ResponseWriter, r *http.Request) {
