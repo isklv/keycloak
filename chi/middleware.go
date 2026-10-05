@@ -1,6 +1,7 @@
 package chi
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -13,6 +14,9 @@ import (
 	"github.com/isklv/keycloak/v2/webflow"
 	"github.com/isklv/slogging"
 )
+
+// ErrInvalidBearerHeader is returned when the Authorization header is missing or not a valid Bearer token.
+var ErrInvalidBearerHeader = errors.New("missing or invalid authorization header")
 
 type Middleware struct {
 	flow *webflow.Flow
@@ -29,6 +33,9 @@ func New(as *auth.Service, cfg keycloak.Config, flow *webflow.Flow) *Middleware 
 }
 
 func (m *Middleware) Auth() func(http.Handler) http.Handler {
+	if m.flow == nil {
+		panic("keycloak/chi: webflow is required for Auth() cookie middleware")
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			c, err := r.Cookie(m.flow.CookieName())
@@ -164,12 +171,12 @@ func currentURL(r *http.Request) string {
 func extractBearerToken(r *http.Request) (string, error) {
 	authz := r.Header.Get("Authorization")
 	if authz == "" {
-		return "", http.ErrNoCookie // просто готовая ошибка
+		return "", ErrInvalidBearerHeader
 	}
 
 	parts := strings.SplitN(authz, " ", 2)
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || strings.TrimSpace(parts[1]) == "" {
-		return "", http.ErrNoCookie
+		return "", ErrInvalidBearerHeader
 	}
 
 	return strings.TrimSpace(parts[1]), nil

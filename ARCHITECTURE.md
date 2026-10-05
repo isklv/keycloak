@@ -246,10 +246,9 @@ type CommonToken struct {
 
 1. **Algorithm**: RS256 only (asymmetric, no symmetric secrets)
 2. **Issuer**: Validated against `cfg.Issuer()` (Keycloak realm URL)
-3. **Audience**: Validated via `jwt.WithAudience(cfg.ClientID)` — rejects tokens not intended for this client
-4. **Signature**: Verified against JWKS from `{issuer}/.well-known/openid-configuration/jwks`
-5. **Expiration**: Checked via `RegisteredClaims.ExpiresAt`
-6. **Authorized Party (azp)**: If present, must match `cfg.ClientID` — prevents token reuse across clients
+3. **Signature**: Verified against JWKS from `{issuer}/.well-known/openid-configuration/jwks`
+4. **Expiration**: Checked via `RegisteredClaims.ExpiresAt`
+5. **Authorized Party (azp)**: Configurable via `cfg.AuthorizedParties`. When set, tokens must contain a matching `azp` claim. When omitted or empty, azp validation is bypassed.
 
 ### Token Masking
 
@@ -296,13 +295,11 @@ Uses `github.com/MicahParks/keyfunc/v3` which:
 flow := webflow.New(cfg, cookieCfg, "/login", "http://localhost/callback", nil)
 as, _ := auth.NewService(ctx, cfg)
 mw := chiweb.New(as, cfg, flow)
+authHandler := chiweb.NewAuthHandler(flow, "/")
 
-// 2. Routes
-r.Get("/login", func(w http.ResponseWriter, r *http.Request) {
-    http.Redirect(w, r, flow.AuthCodeURL("state123"), http.StatusFound)
-})
-
-r.Get("/callback", chiweb.NewHandler(flow, as, "/").HandleCallback)
+// 2. Routes (HandleLogin sets PKCE + CSRF state cookie, HandleCallback verifies & exchanges code)
+r.Get("/login", authHandler.HandleLogin)
+r.Get("/callback", authHandler.HandleCallback)
 
 // 3. Protected routes
 r.Group(func(protected chi.Router) {
@@ -338,13 +335,16 @@ keycloak/
 │   ├── context.go     # Context injection helpers
 │   └── service.go     # Token validation + JWKS
 ├── chi/
-│   ├── handler.go     # Callback handler
+│   ├── handler.go     # Login & callback HTTP handlers
 │   └── middleware.go  # Auth/AuthBearer/Require* middlewares
 ├── clientcred/
 │   ├── client.go      # HTTP RoundTripper
 │   └── clientcred.go  # Token caching + fetching
 ├── tokenutil/
 │   └── tokenutil.go   # Token parsing
+├── webflow/
+│   ├── pkce.go        # PKCE & crypto state helpers
+│   └── webflow.go     # Authorization Code flow
 ├── config.go          # Keycloak config struct
 └── cmd/server/        # Full working example
 ```
@@ -362,4 +362,4 @@ keycloak/
 
 ---
 
-*Updated: 2026-09-16 | Version: v2.2.0*
+*Updated: 2026-10-05 | Version: v2.2.1*

@@ -36,11 +36,11 @@ func main() {
 
 	// init api2api
 	cfgApi2Api := keycloak.Config{
-		Realm:          realm,
-		AuthURL:        authBackendURL,
-		BackendAuthURL: authBackendURL,
-		ClientID:       "svc",
-		ClientSecret:   clientSecret,
+		Realm:             realm,
+		AuthURL:           authBackendURL,
+		ClientID:          "svc",
+		ClientSecret:      clientSecret,
+		AuthorizedParties: []string{"svc"},
 	}
 
 	asApi2Api, err := auth.NewService(
@@ -59,6 +59,7 @@ func main() {
 		BackendAuthURL: authBackendURL,
 		Realm:          realm,
 		ClientID:       clientID,
+		RedirectURL:    baseURL + "/callback",
 	}
 
 	flow := webflow.New(
@@ -71,7 +72,7 @@ func main() {
 			SameSite: http.SameSiteLaxMode,
 		},
 		"/login",
-		baseURL+"/callback",
+		"",
 		nil,
 	)
 
@@ -84,9 +85,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	chiHandler := chiweb.NewHandler(
+	chiHandler := chiweb.NewAuthHandler(
 		flow,
-		as,
 		"/",
 	)
 
@@ -123,7 +123,12 @@ func main() {
 		}
 		defer resp.Body.Close()
 
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Error("Failed to read response body", slogging.ErrAttr(err))
+			http.Error(w, "Failed to read response", http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(body)
 
@@ -141,11 +146,6 @@ func main() {
 				slogging.AnyAttr("roles", claims.RealmAccess),
 			)
 
-			if claims.AuthorizedParty != "svc" {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
-
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"ok": true}`))
 		})
@@ -161,6 +161,8 @@ func main() {
 				slogging.StringAttr("username", claims.PreferredUsername),
 				slogging.AnyAttr("roles", claims.ResourceAccess),
 			)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"ok": true, "user": "` + claims.PreferredUsername + `"}`))
 		})
 	})
 

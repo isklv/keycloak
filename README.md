@@ -5,6 +5,14 @@ go get -u github.com/isklv/keycloak/v2
 
 ## Changelog
 
+### v2.2.1
+- **Cleanup:** Removed dead code `webflow/token.go` (`UserTokenSource`), moved `Token` alias to `webflow`.
+- **API:** Added `chi.NewAuthHandler(flow, afterPath, opts...)` constructor without unused `*auth.Service` dependency (`NewHandler` preserved for backwards compatibility).
+- **Config:** `Config.RedirectURL` is now respected by `webflow.New(cfg, ..., "", ...)` when redirect URI argument is empty, and accessible via `flow.RedirectURI()`.
+- **Middleware:** Replaced misleading `http.ErrNoCookie` in `chi.extractBearerToken()` with exported `chi.ErrInvalidBearerHeader`.
+- **Safety:** `chi.Middleware.Auth()` now panics explicitly with a descriptive message if `flow` is nil instead of nil pointer dereference on incoming request.
+- **Example:** Cleaned up `cmd/server/main.go` and README example: removed redundant manual claims checks and redundant URL configs.
+
 ### v2.2.0
 - **Security:** Full PKCE support (RFC 7636 / S256) in `webflow` (`GeneratePKCE`, `AuthCodeURLWithPKCE`, `ExchangeCodeWithPKCE`) and enabled by default in `chi.Handler`
 - **Security:** Login CSRF protection via cryptographic `state` generation and transient HTTPOnly cookie (`kc_at_txn`)
@@ -74,11 +82,12 @@ func main() {
 
 	// api2api — BackendAuthURL optional, falls back to AuthURL if empty
 	cfgApi2Api := keycloak.Config{
-		AuthURL:        authURL,
+		AuthURL:           authURL,
 		// BackendAuthURL: "http://internal-keycloak:8080/auth", // optional override
-		Realm:        realm,
-		ClientID:     "svc",
-		ClientSecret: clientSecret,
+		Realm:             realm,
+		ClientID:          "svc",
+		ClientSecret:      clientSecret,
+		AuthorizedParties: []string{"svc"},
 	}
 
 	asApi2Api, err := auth.NewService(ctx, cfgApi2Api)
@@ -90,10 +99,11 @@ func main() {
 
 	// web auth
 	cfg := keycloak.Config{
-		AuthURL:        authURL,
+		AuthURL:     authURL,
 		// BackendAuthURL: "...", // optional — only if internal URL differs
-		Realm:      realm,
-		ClientID:   clientID,
+		Realm:       realm,
+		ClientID:    clientID,
+		RedirectURL: baseURL + "/callback",
 	}
 
 	flow := webflow.New(
@@ -106,7 +116,7 @@ func main() {
 			SameSite: http.SameSiteLaxMode,
 		},
 		"/login",
-		baseURL+"/callback",
+		"", // defaults to cfg.RedirectURL
 		nil,
 	)
 
@@ -116,7 +126,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	chiHandler := chiweb.NewHandler(flow, as, "/")
+	chiHandler := chiweb.NewAuthHandler(flow, "/")
 	mw := chiweb.New(as, cfg, flow)
 
 	r := chi.NewRouter()
@@ -149,7 +159,12 @@ func main() {
 		}
 		defer resp.Body.Close()
 
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Error("Read body error", slogging.ErrAttr(err))
+			http.Error(w, "Read error", http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(body)
 	})
@@ -181,6 +196,8 @@ func main() {
 				slogging.StringAttr("username", claims.PreferredUsername),
 				slogging.AnyAttr("roles", claims.ResourceAccess),
 			)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"ok": true, "user": "` + claims.PreferredUsername + `"}`))
 		})
 	})
 

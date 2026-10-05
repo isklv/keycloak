@@ -16,6 +16,8 @@ import (
 	"github.com/isklv/slogging"
 )
 
+type Token = tokenutil.CommonToken
+
 type CookieConfig struct {
 	Name     string
 	Path     string
@@ -34,6 +36,9 @@ type Flow struct {
 }
 
 func New(cfg keycloak.Config, cookie CookieConfig, loginURL, redirectURI string, client *http.Client) *Flow {
+	if redirectURI == "" && cfg.RedirectURL != "" {
+		redirectURI = cfg.RedirectURL
+	}
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -54,6 +59,8 @@ func New(cfg keycloak.Config, cookie CookieConfig, loginURL, redirectURI string,
 		redirectURI: redirectURI,
 	}
 }
+
+func (f *Flow) RedirectURI() string { return f.redirectURI }
 
 // PKCE holds a code verifier and code challenge pair according to RFC 7636.
 type PKCE struct {

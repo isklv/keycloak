@@ -16,7 +16,6 @@ import (
 
 type Handler struct {
 	flow                *webflow.Flow
-	jwt                 *auth.Service
 	cookie              webflow.CookieConfig
 	afterPath           string
 	transientCookieName string
@@ -43,7 +42,9 @@ func WithTransientCookieName(name string) HandlerOption {
 	}
 }
 
-func NewHandler(flow *webflow.Flow, jwtSvc *auth.Service, afterPath string, opts ...HandlerOption) *Handler {
+// NewHandler creates a new Chi OAuth handler.
+// Note: jwtSvc is kept for backwards compatibility but is no longer needed by Handler.
+func NewHandler(flow *webflow.Flow, _ *auth.Service, afterPath string, opts ...HandlerOption) *Handler {
 	cookieCfg := webflow.CookieConfig{}
 	if flow != nil {
 		cookieCfg = flow.CookieConfig()
@@ -51,7 +52,6 @@ func NewHandler(flow *webflow.Flow, jwtSvc *auth.Service, afterPath string, opts
 
 	h := &Handler{
 		flow:                flow,
-		jwt:                 jwtSvc,
 		cookie:              cookieCfg,
 		afterPath:           afterPath,
 		transientCookieName: cookieCfg.Name + "_txn",
@@ -63,6 +63,11 @@ func NewHandler(flow *webflow.Flow, jwtSvc *auth.Service, afterPath string, opts
 	}
 
 	return h
+}
+
+// NewAuthHandler creates a new Chi OAuth handler without redundant auth.Service dependency.
+func NewAuthHandler(flow *webflow.Flow, afterPath string, opts ...HandlerOption) *Handler {
+	return NewHandler(flow, nil, afterPath, opts...)
 }
 
 type oauthTransient struct {

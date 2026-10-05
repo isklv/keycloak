@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -186,6 +187,17 @@ func TestMiddleware_Auth(t *testing.T) {
 		if capturedClaims == nil || capturedClaims.PreferredUsername != "alice" {
 			t.Errorf("Expected claims for alice in context, got: %v", capturedClaims)
 		}
+	})
+
+	t.Run("PanicsWhenNilFlow", func(t *testing.T) {
+		mwNoFlow := New(as, cfg, nil)
+		defer func() {
+			r := recover()
+			if r == nil {
+				t.Fatal("Expected panic when mw.flow is nil in Auth()")
+			}
+		}()
+		_ = mwNoFlow.Auth()
 	})
 }
 
@@ -835,8 +847,8 @@ func Test_extractBearerToken(t *testing.T) {
 		req.Header.Set("Authorization", "token123")
 
 		_, err := extractBearerToken(req)
-		if err == nil {
-			t.Error("Expected error for missing Bearer")
+		if !errors.Is(err, ErrInvalidBearerHeader) {
+			t.Errorf("Expected ErrInvalidBearerHeader, got %v", err)
 		}
 	})
 
@@ -845,8 +857,8 @@ func Test_extractBearerToken(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer ")
 
 		_, err := extractBearerToken(req)
-		if err == nil {
-			t.Error("Expected error for empty token")
+		if !errors.Is(err, ErrInvalidBearerHeader) {
+			t.Errorf("Expected ErrInvalidBearerHeader, got %v", err)
 		}
 	})
 
@@ -855,8 +867,8 @@ func Test_extractBearerToken(t *testing.T) {
 		req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
 
 		_, err := extractBearerToken(req)
-		if err == nil {
-			t.Error("Expected error for Basic auth")
+		if !errors.Is(err, ErrInvalidBearerHeader) {
+			t.Errorf("Expected ErrInvalidBearerHeader, got %v", err)
 		}
 	})
 
@@ -864,8 +876,8 @@ func Test_extractBearerToken(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
 
 		_, err := extractBearerToken(req)
-		if err == nil {
-			t.Error("Expected error for missing header")
+		if !errors.Is(err, ErrInvalidBearerHeader) {
+			t.Errorf("Expected ErrInvalidBearerHeader, got %v", err)
 		}
 	})
 }

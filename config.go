@@ -14,7 +14,7 @@ type Config struct {
 
 	ClientID     string
 	Realm        string
-	RedirectURL  string // OAUTH
+	RedirectURL  string // OAUTH redirect/callback URI (used as default in webflow.New)
 	ClientSecret string // confidential / client credentials
 
 	// AuthorizedParties is a list of allowed azp (authorized party) values.
