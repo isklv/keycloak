@@ -189,6 +189,63 @@ func TestMiddleware_Auth(t *testing.T) {
 		}
 	})
 
+	t.Run("Returns401WhenAJAXRequestNoCookie", func(t *testing.T) {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		protected := mw.Auth()(handler)
+
+		// Test modern browser fetch: Sec-Fetch-Mode: cors
+		req := httptest.NewRequest("GET", "/api/data", nil)
+		req.Header.Set("Sec-Fetch-Mode", "cors")
+		w := httptest.NewRecorder()
+
+		protected.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("Expected 401 Unauthorized for fetch request, got %d", w.Code)
+		}
+
+		if !strings.Contains(w.Body.String(), `"error":"unauthorized"`) {
+			t.Errorf("Expected unauthorized error in body, got: %s", w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), `"login_url"`) {
+			t.Errorf("Expected login_url in body, got: %s", w.Body.String())
+		}
+	})
+
+	t.Run("Returns401WhenAJAXRequestInvalidCookie", func(t *testing.T) {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		protected := mw.Auth()(handler)
+
+		req := httptest.NewRequest("GET", "/api/data", nil)
+		req.Header.Set("Accept", "application/json")
+		req.AddCookie(&http.Cookie{Name: "kc_at", Value: "invalid-token"})
+		w := httptest.NewRecorder()
+
+		protected.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("Expected 401 Unauthorized, got %d", w.Code)
+		}
+
+		// Cookie should be cleared
+		var cleared bool
+		for _, c := range w.Result().Cookies() {
+			if c.Name == "kc_at" && c.MaxAge == -1 {
+				cleared = true
+				break
+			}
+		}
+		if !cleared {
+			t.Error("Expected auth cookie to be cleared on invalid token in AJAX request")
+		}
+	})
+
 	t.Run("PanicsWhenNilFlow", func(t *testing.T) {
 		mwNoFlow := New(as, cfg, nil)
 		defer func() {
@@ -198,6 +255,82 @@ func TestMiddleware_Auth(t *testing.T) {
 			}
 		}()
 		_ = mwNoFlow.Auth()
+	})
+}
+
+func TestMiddleware_AuthCookie(t *testing.T) {
+	jwks := newTestJWKSServer(t)
+
+	cfg := keycloak.Config{
+		AuthURL:  jwks.server.URL,
+		Realm:    "test",
+		ClientID: "web",
+	}
+
+	as, err := auth.NewService(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewService failed: %v", err)
+	}
+
+	flow := webflow.New(cfg, webflow.CookieConfig{Name: "kc_at"}, "/login", "http://localhost/callback", nil)
+	mw := New(as, cfg, flow)
+
+	t.Run("Returns401WhenNoCookie", func(t *testing.T) {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		protected := mw.AuthCookie()(handler)
+
+		req := httptest.NewRequest("GET", "/api/data", nil)
+		w := httptest.NewRecorder()
+
+		protected.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("Expected 401 Unauthorized, got %d", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), `"error":"unauthorized"`) {
+			t.Errorf("Expected unauthorized JSON, got: %s", w.Body.String())
+		}
+	})
+
+	t.Run("PassesWithValidCookie", func(t *testing.T) {
+		claims := &auth.Claims{
+			PreferredUsername: "bob",
+			RegisteredClaims: jwt.RegisteredClaims{
+				Issuer:    cfg.Issuer(),
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+			},
+		}
+		validToken := jwks.signToken(t, claims)
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		protected := mw.AuthCookie()(handler)
+
+		req := httptest.NewRequest("GET", "/api/data", nil)
+		req.AddCookie(&http.Cookie{Name: "kc_at", Value: validToken})
+		w := httptest.NewRecorder()
+
+		protected.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected 200 OK, got %d", w.Code)
+		}
+	})
+
+	t.Run("PanicsWhenNilFlow", func(t *testing.T) {
+		mwNoFlow := New(as, cfg, nil)
+		defer func() {
+			r := recover()
+			if r == nil {
+				t.Fatal("Expected panic when mw.flow is nil in AuthCookie()")
+			}
+		}()
+		_ = mwNoFlow.AuthCookie()
 	})
 }
 
@@ -1019,5 +1152,89 @@ func TestMiddleware_Integration(t *testing.T) {
 	}
 	if wAuth.Body.String() != "protected-admin" {
 		t.Errorf("Expected 'protected-admin', got '%s'", wAuth.Body.String())
+	}
+}
+
+func Test_isAJAXRequest(t *testing.T) {
+	tests := []struct {
+		name    string
+		headers map[string]string
+		want    bool
+	}{
+		{
+			name:    "NoHeaders",
+			headers: nil,
+			want:    false,
+		},
+		{
+			name: "BrowserNavigation_SecFetchMode",
+			headers: map[string]string{
+				"Sec-Fetch-Mode": "navigate",
+				"Accept":         "text/html,application/xhtml+xml",
+			},
+			want: false,
+		},
+		{
+			name: "BrowserFetch_SecFetchModeCors",
+			headers: map[string]string{
+				"Sec-Fetch-Mode": "cors",
+			},
+			want: true,
+		},
+		{
+			name: "BrowserFetch_SecFetchModeSameOrigin",
+			headers: map[string]string{
+				"Sec-Fetch-Mode": "same-origin",
+			},
+			want: true,
+		},
+		{
+			name: "XRequestedWith_XMLHttpRequest",
+			headers: map[string]string{
+				"X-Requested-With": "XMLHttpRequest",
+			},
+			want: true,
+		},
+		{
+			name: "XRequestedWith_Lowercase",
+			headers: map[string]string{
+				"X-Requested-With": "xmlhttprequest",
+			},
+			want: true,
+		},
+		{
+			name: "ContentType_JSON",
+			headers: map[string]string{
+				"Content-Type": "application/json; charset=utf-8",
+			},
+			want: true,
+		},
+		{
+			name: "Accept_JSON",
+			headers: map[string]string{
+				"Accept": "application/json",
+			},
+			want: true,
+		},
+		{
+			name: "Accept_HTMLAndJSON_PrefersHTML",
+			headers: map[string]string{
+				"Accept": "text/html,application/xhtml+xml,application/json",
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/test", nil)
+			for k, v := range tt.headers {
+				req.Header.Set(k, v)
+			}
+			got := isAJAXRequest(req)
+			if got != tt.want {
+				t.Errorf("isAJAXRequest() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

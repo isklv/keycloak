@@ -184,22 +184,27 @@ graph LR
 
 ### Middleware Types
 
-**1. `Middleware.Auth()`** — Web authentication
-- Checks cookie `kc_at`
-- If missing → redirect to `/login?return=<current_url>`
-- If invalid → clear cookie + redirect to login
-- If valid → inject `Claims` into context via `auth.WithClaims()`
+**1. `Middleware.Auth()`** — Web and SPA authentication
+- Checks session cookie `kc_at`
+- If missing/invalid and request is AJAX/fetch (`Sec-Fetch-Mode != navigate`, `Accept: application/json`, or `X-Requested-With`) → returns **401 Unauthorized** with `{"error":"unauthorized","login_url":"..."}` (clearing invalid cookie)
+- If missing/invalid and request is top-level page navigation → redirects to `/login?return=<current_url>` (clearing invalid cookie)
+- If valid → injects `Claims` into context via `auth.WithClaims()`
 
-**2. `Middleware.AuthBearer()`** — API authentication
+**2. `Middleware.AuthCookie()`** — Dedicated cookie authentication for API routes
+- Checks session cookie `kc_at`
+- Always returns **401 Unauthorized** with JSON on missing or invalid cookie (no redirects)
+- If valid → injects `Claims` into context via `auth.WithClaims()`
+
+**3. `Middleware.AuthBearer()`** — Bearer token authentication for API
 - Extracts `Authorization: Bearer <token>` header
 - Returns 401 if missing/invalid
 - Injects `Claims` into context
 
-**3. `Middleware.RequireAnyRealmRole(roles...)`**
+**4. `Middleware.RequireAnyRealmRole(roles...)`**
 - Checks `claims.RealmAccess.Roles`
 - Returns 403 Forbidden if none match
 
-**4. `Middleware.RequireAnyClientRole(clientID, roles...)`**
+**5. `Middleware.RequireAnyClientRole(clientID, roles...)`**
 - Checks `claims.ResourceAccess[clientID].Roles`
 - Returns 403 Forbidden if none match
 
@@ -362,4 +367,4 @@ keycloak/
 
 ---
 
-*Updated: 2026-10-05 | Version: v2.2.1*
+*Updated: 2026-10-05 | Version: v2.2.2*

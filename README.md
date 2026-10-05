@@ -5,6 +5,10 @@ go get -u github.com/isklv/keycloak/v2
 
 ## Changelog
 
+### v2.2.2
+- **Feature (SPA/Fetch):** Smart AJAX detection in `chi.Middleware.Auth()` — requests initiated by `fetch()`, `axios`, or specifying `Accept: application/json` receive HTTP `401 Unauthorized` (`{"error":"unauthorized","login_url":"..."}`) instead of a `302 Found` redirect, preventing CORS errors and allowing frontend interceptors to handle re-authentication cleanly. Browser page navigations (`Sec-Fetch-Mode: navigate` / `text/html`) continue to receive `302 Found` redirects.
+- **Feature:** Added `chi.Middleware.AuthCookie()` — dedicated cookie authentication middleware for API routes that strictly returns HTTP `401 Unauthorized` on missing or invalid session cookie without redirects.
+
 ### v2.2.1
 - **Cleanup:** Removed dead code `webflow/token.go` (`UserTokenSource`), moved `Token` alias to `webflow`.
 - **API:** Added `chi.NewAuthHandler(flow, afterPath, opts...)` constructor without unused `*auth.Service` dependency (`NewHandler` preserved for backwards compatibility).

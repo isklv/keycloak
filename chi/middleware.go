@@ -1,6 +1,7 @@
 package chi
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -40,8 +41,7 @@ func (m *Middleware) Auth() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			c, err := r.Cookie(m.flow.CookieName())
 			if err != nil || c.Value == "" {
-				returnTo := url.PathEscape(currentURL(r))
-				http.Redirect(w, r, m.flow.LoginURL()+"?return="+returnTo, http.StatusFound)
+				m.handleUnauthorized(w, r)
 				return
 			}
 
@@ -49,8 +49,36 @@ func (m *Middleware) Auth() func(http.Handler) http.Handler {
 			if err != nil {
 				slogging.L(r.Context()).Error("ParseAndValidateToken", slogging.ErrAttr(err))
 				http.SetCookie(w, m.clearAuthCookie())
-				returnTo := url.PathEscape(currentURL(r))
-				http.Redirect(w, r, m.flow.LoginURL()+"?return="+returnTo, http.StatusFound)
+				m.handleUnauthorized(w, r)
+				return
+			}
+
+			ctx := auth.WithClaims(r.Context(), claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// AuthCookie authenticates requests using the session cookie and always returns
+// 401 Unauthorized (instead of 302 redirect) if the cookie is missing or invalid.
+// Useful for dedicated API route groups that use cookie-based authentication.
+func (m *Middleware) AuthCookie() func(http.Handler) http.Handler {
+	if m.flow == nil {
+		panic("keycloak/chi: webflow is required for AuthCookie() cookie middleware")
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			c, err := r.Cookie(m.flow.CookieName())
+			if err != nil || c.Value == "" {
+				m.writeUnauthorizedJSON(w, r)
+				return
+			}
+
+			claims, err := m.as.ParseAndValidateToken(r.Context(), c.Value)
+			if err != nil {
+				slogging.L(r.Context()).Error("ParseAndValidateToken", slogging.ErrAttr(err))
+				http.SetCookie(w, m.clearAuthCookie())
+				m.writeUnauthorizedJSON(w, r)
 				return
 			}
 
@@ -156,6 +184,48 @@ func (m *Middleware) clearAuthCookie() *http.Cookie {
 		Secure:   cookie.Secure,
 		SameSite: cookie.SameSite,
 	}
+}
+
+func (m *Middleware) handleUnauthorized(w http.ResponseWriter, r *http.Request) {
+	if isAJAXRequest(r) {
+		m.writeUnauthorizedJSON(w, r)
+		return
+	}
+	returnTo := url.PathEscape(currentURL(r))
+	http.Redirect(w, r, m.flow.LoginURL()+"?return="+returnTo, http.StatusFound)
+}
+
+func (m *Middleware) writeUnauthorizedJSON(w http.ResponseWriter, r *http.Request) {
+	loginURL := m.flow.LoginURL() + "?return=" + url.PathEscape(currentURL(r))
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusUnauthorized)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error":     "unauthorized",
+		"login_url": loginURL,
+	})
+}
+
+// isAJAXRequest detects whether the incoming request is an API/fetch/XHR call
+// rather than a top-level browser navigation.
+func isAJAXRequest(r *http.Request) bool {
+	// 1. Modern browser fetch/XHR mode
+	if mode := r.Header.Get("Sec-Fetch-Mode"); mode != "" && mode != "navigate" {
+		return true
+	}
+	// 2. Standard X-Requested-With header (used by Axios, jQuery, etc.)
+	if strings.EqualFold(r.Header.Get("X-Requested-With"), "XMLHttpRequest") {
+		return true
+	}
+	// 3. Request sends JSON body (e.g. POST/PUT API calls)
+	if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		return true
+	}
+	// 4. Client prefers JSON over HTML
+	accept := r.Header.Get("Accept")
+	if strings.Contains(accept, "application/json") && !strings.Contains(accept, "text/html") {
+		return true
+	}
+	return false
 }
 
 func currentURL(r *http.Request) string {
