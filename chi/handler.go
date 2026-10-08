@@ -4,7 +4,9 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -15,11 +17,14 @@ import (
 )
 
 type Handler struct {
-	flow                *webflow.Flow
-	cookie              webflow.CookieConfig
-	afterPath           string
-	transientCookieName string
-	enablePKCE          bool
+	flow                 *webflow.Flow
+	cookie               webflow.CookieConfig
+	afterPath            string
+	transientCookieName  string
+	enablePKCE           bool
+	allowedRedirectHosts []string
+	allowAnyRedirectURL  bool
+	redirectValidator    func(string) bool
 }
 
 type HandlerOption func(*Handler)
@@ -42,9 +47,35 @@ func WithTransientCookieName(name string) HandlerOption {
 	}
 }
 
+// WithAllowedRedirectHosts specifies allowed external hostnames or wildcard patterns
+// for redirect return URLs (e.g. "app.example.com", "*.example.com", "localhost:3000").
+func WithAllowedRedirectHosts(hosts ...string) HandlerOption {
+	return func(h *Handler) {
+		h.allowedRedirectHosts = append(h.allowedRedirectHosts, hosts...)
+	}
+}
+
+// WithAllowAnyRedirect enables or disables unrestricted redirect URLs (disables open redirect validation).
+// Use with caution.
+func WithAllowAnyRedirect(allow bool) HandlerOption {
+	return func(h *Handler) {
+		h.allowAnyRedirectURL = allow
+	}
+}
+
+// WithRedirectValidator configures a custom validation function for redirect return URLs.
+func WithRedirectValidator(fn func(string) bool) HandlerOption {
+	return func(h *Handler) {
+		h.redirectValidator = fn
+	}
+}
+
 // NewHandler creates a new Chi OAuth handler.
 // Note: jwtSvc is kept for backwards compatibility but is no longer needed by Handler.
 func NewHandler(flow *webflow.Flow, _ *auth.Service, afterPath string, opts ...HandlerOption) *Handler {
+	if afterPath == "" {
+		afterPath = "/"
+	}
 	cookieCfg := webflow.CookieConfig{}
 	if flow != nil {
 		cookieCfg = flow.CookieConfig()
@@ -103,6 +134,86 @@ func isSafeRedirectURL(u string) bool {
 	return strings.HasPrefix(u, "/") && !strings.HasPrefix(u, "//")
 }
 
+func (h *Handler) isSafeRedirect(u string) bool {
+	if u == "" {
+		return false
+	}
+	// Relative path on same domain
+	if strings.HasPrefix(u, "/") && !strings.HasPrefix(u, "//") {
+		return true
+	}
+
+	// Parse absolute URL
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
+	if parsed.Host == "" {
+		return false
+	}
+
+	// Unrestricted redirect allowed
+	if h.allowAnyRedirectURL {
+		return true
+	}
+
+	// Custom validator
+	if h.redirectValidator != nil {
+		return h.redirectValidator(u)
+	}
+
+	targetHost := parsed.Host
+
+	// Explicitly allowed hosts or wildcard patterns
+	for _, pattern := range h.allowedRedirectHosts {
+		if matchHost(pattern, targetHost) {
+			return true
+		}
+	}
+
+	// Automatically allow the host of configured afterPath if it is an absolute URL
+	if afterPathParsed, err := url.Parse(h.afterPath); err == nil && afterPathParsed.Host != "" {
+		if matchHost(afterPathParsed.Host, targetHost) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func matchHost(pattern, host string) bool {
+	pattern = strings.ToLower(strings.TrimSpace(pattern))
+	host = strings.ToLower(strings.TrimSpace(host))
+	if pattern == "" || host == "" {
+		return false
+	}
+
+	hostName := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		if !strings.Contains(pattern, ":") {
+			hostName = h
+		}
+	}
+
+	if pattern == host || pattern == hostName {
+		return true
+	}
+
+	// Wildcard pattern: "*.example.com" or ".example.com"
+	if strings.HasPrefix(pattern, "*.") {
+		suffix := pattern[1:] // ".example.com"
+		return strings.HasSuffix(hostName, suffix) || hostName == pattern[2:]
+	}
+	if strings.HasPrefix(pattern, ".") {
+		return strings.HasSuffix(hostName, pattern) || hostName == pattern[1:]
+	}
+
+	return false
+}
+
 // HandleLogin initiates the OAuth2 Authorization Code flow with PKCE (RFC 7636) and state CSRF protection.
 // It generates a secure random state and PKCE verifier/challenge, stores them in an HTTPOnly transient cookie,
 // and redirects the user to Keycloak's login page. If a 'return' query parameter is present,
@@ -137,7 +248,7 @@ func (h *Handler) LoginURLWithPKCE(w http.ResponseWriter, r *http.Request) (stri
 	}
 
 	returnTo := r.URL.Query().Get("return")
-	if !isSafeRedirectURL(returnTo) {
+	if !h.isSafeRedirect(returnTo) {
 		returnTo = ""
 	}
 
@@ -179,6 +290,9 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	var codeVerifier string
 	redirectTarget := h.afterPath
+	if redirectTarget == "" {
+		redirectTarget = "/"
+	}
 
 	// Validate state & retrieve PKCE verifier from transient cookie if present
 	txnCookie, err := r.Cookie(h.transientCookieName)
@@ -204,7 +318,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 
 		codeVerifier = txn.CodeVerifier
-		if isSafeRedirectURL(txn.ReturnURL) {
+		if h.isSafeRedirect(txn.ReturnURL) {
 			redirectTarget = txn.ReturnURL
 		}
 	}

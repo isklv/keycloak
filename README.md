@@ -5,6 +5,14 @@ go get -u github.com/isklv/keycloak/v2
 
 ## Changelog
 
+### v2.2.3
+- **Feature (External Domain Redirects):** Supported redirects to external domains after authentication:
+  - `WithAllowedRedirectHosts(hosts ...string)` allows whitelisting allowed external redirect domains or wildcards (e.g. `"*.example.com"`, `"frontend.com"`, `"localhost:3000"`).
+  - Absolute `afterPath` host (e.g. `NewAuthHandler(flow, "https://frontend.example.com/app")`) is now automatically trusted for redirects.
+  - `WithAllowAnyRedirect(true)` allows unrestricted external return URLs if needed.
+  - `WithRedirectValidator(fn func(string) bool)` allows custom return URL validation logic.
+  - Empty `afterPath` now safely defaults to `"/"` instead of an empty redirect location.
+
 ### v2.2.2
 - **Feature (SPA/Fetch):** Smart AJAX detection in `chi.Middleware.Auth()` — requests initiated by `fetch()`, `axios`, or specifying `Accept: application/json` receive HTTP `401 Unauthorized` (`{"error":"unauthorized","login_url":"..."}`) instead of a `302 Found` redirect, preventing CORS errors and allowing frontend interceptors to handle re-authentication cleanly. Browser page navigations (`Sec-Fetch-Mode: navigate` / `text/html`) continue to receive `302 Found` redirects.
 - **Feature:** Added `chi.Middleware.AuthCookie()` — dedicated cookie authentication middleware for API routes that strictly returns HTTP `401 Unauthorized` on missing or invalid session cookie without redirects.

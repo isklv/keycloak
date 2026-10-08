@@ -892,6 +892,132 @@ func TestHandler_HandleCallback(t *testing.T) {
 			t.Errorf("Expected fallback to /default-dashboard, got %s", cbRec.Header().Get("Location"))
 		}
 	})
+
+	t.Run("CallbackAllowedRedirectHost_RedirectsToExternalDomain", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{
+				"access_token": "token",
+				"token_type": "Bearer",
+				"expires_in": 3600
+			}`))
+		}))
+		defer server.Close()
+
+		cfg := keycloak.Config{AuthURL: server.URL, Realm: "test", ClientID: "web"}
+		flow := webflow.New(cfg, webflow.CookieConfig{Name: "kc_at"}, "/login", "http://localhost/callback", nil)
+		h := NewHandler(flow, nil, "/dashboard", WithAllowedRedirectHosts("*.sovcombank.group", "localhost:3000"))
+
+		// Login with return to allowed external subdomain
+		targetURL := "https://test-ecom-ab.sovcombank.group/checkout"
+		loginReq := httptest.NewRequest("GET", "/login?return="+url.QueryEscape(targetURL), nil)
+		loginRec := httptest.NewRecorder()
+		authURL, _ := h.LoginURLWithPKCE(loginRec, loginReq)
+		parsed, _ := url.Parse(authURL)
+		state := parsed.Query().Get("state")
+
+		var txnCookie *http.Cookie
+		for _, c := range loginRec.Result().Cookies() {
+			if c.Name == h.transientCookieName {
+				txnCookie = c
+				break
+			}
+		}
+
+		cbReq := httptest.NewRequest("GET", "/callback?code=valid-code&state="+state, nil)
+		cbReq.AddCookie(txnCookie)
+		cbRec := httptest.NewRecorder()
+
+		h.HandleCallback(cbRec, cbReq)
+
+		if cbRec.Header().Get("Location") != targetURL {
+			t.Errorf("Expected redirect to %s, got %s", targetURL, cbRec.Header().Get("Location"))
+		}
+	})
+
+	t.Run("CallbackAfterPathHost_AutomaticallyAllowed", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{
+				"access_token": "token",
+				"token_type": "Bearer",
+				"expires_in": 3600
+			}`))
+		}))
+		defer server.Close()
+
+		cfg := keycloak.Config{AuthURL: server.URL, Realm: "test", ClientID: "web"}
+		flow := webflow.New(cfg, webflow.CookieConfig{Name: "kc_at"}, "/login", "http://localhost/callback", nil)
+		// Default afterPath is on external frontend host
+		h := NewHandler(flow, nil, "https://frontend.company.com/home")
+
+		targetURL := "https://frontend.company.com/profile"
+		loginReq := httptest.NewRequest("GET", "/login?return="+url.QueryEscape(targetURL), nil)
+		loginRec := httptest.NewRecorder()
+		authURL, _ := h.LoginURLWithPKCE(loginRec, loginReq)
+		parsed, _ := url.Parse(authURL)
+		state := parsed.Query().Get("state")
+
+		var txnCookie *http.Cookie
+		for _, c := range loginRec.Result().Cookies() {
+			if c.Name == h.transientCookieName {
+				txnCookie = c
+				break
+			}
+		}
+
+		cbReq := httptest.NewRequest("GET", "/callback?code=valid-code&state="+state, nil)
+		cbReq.AddCookie(txnCookie)
+		cbRec := httptest.NewRecorder()
+
+		h.HandleCallback(cbRec, cbReq)
+
+		if cbRec.Header().Get("Location") != targetURL {
+			t.Errorf("Expected redirect to %s, got %s", targetURL, cbRec.Header().Get("Location"))
+		}
+	})
+
+	t.Run("CallbackDisallowedHost_FallsBackToDefault", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{
+				"access_token": "token",
+				"token_type": "Bearer",
+				"expires_in": 3600
+			}`))
+		}))
+		defer server.Close()
+
+		cfg := keycloak.Config{AuthURL: server.URL, Realm: "test", ClientID: "web"}
+		flow := webflow.New(cfg, webflow.CookieConfig{Name: "kc_at"}, "/login", "http://localhost/callback", nil)
+		h := NewHandler(flow, nil, "/fallback", WithAllowedRedirectHosts("trusted.com"))
+
+		// Login with untrusted host
+		untrustedURL := "https://evil.com/phishing"
+		loginReq := httptest.NewRequest("GET", "/login?return="+url.QueryEscape(untrustedURL), nil)
+		loginRec := httptest.NewRecorder()
+		authURL, _ := h.LoginURLWithPKCE(loginRec, loginReq)
+		parsed, _ := url.Parse(authURL)
+		state := parsed.Query().Get("state")
+
+		var txnCookie *http.Cookie
+		for _, c := range loginRec.Result().Cookies() {
+			if c.Name == h.transientCookieName {
+				txnCookie = c
+				break
+			}
+		}
+
+		cbReq := httptest.NewRequest("GET", "/callback?code=valid-code&state="+state, nil)
+		cbReq.AddCookie(txnCookie)
+		cbRec := httptest.NewRecorder()
+
+		h.HandleCallback(cbRec, cbReq)
+
+		if cbRec.Header().Get("Location") != "/fallback" {
+			t.Errorf("Expected fallback to /fallback, got %s", cbRec.Header().Get("Location"))
+		}
+	})
 }
 
 func TestHandler_HandleLogin(t *testing.T) {
