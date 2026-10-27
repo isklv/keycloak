@@ -174,6 +174,74 @@ func introspectTokenRoles(token, clientID string) ([]string, error) {
 	return roles, nil
 }
 
+func extractPayload(token string) ([]byte, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, errInvalidToken
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+// DefaultMFAMethods lists standard RFC 8176 and provider authentication methods recognized as MFA.
+var DefaultMFAMethods = []string{
+	"otp", "mfa", "fido", "fido2", "webauthn", "sms", "hwk", "totp", "hotp", "kba", "push", "duo", "yubikey",
+}
+
+// DefaultMFALevels lists standard ACR levels representing MFA.
+var DefaultMFALevels = []string{
+	"mfa", "gold", "2", "loa-2", "phr",
+}
+
+// hasMFAFromPayload checks if decoded JWT payload JSON contains MFA AMR or ACR indicators.
+func hasMFAFromPayload(payload []byte) bool {
+	amrResult := gjson.GetBytes(payload, "amr")
+	if amrResult.Exists() {
+		if amrResult.IsArray() {
+			for _, item := range amrResult.Array() {
+				val := strings.ToLower(strings.TrimSpace(item.String()))
+				for _, method := range DefaultMFAMethods {
+					if val == method {
+						return true
+					}
+				}
+			}
+		} else {
+			val := strings.ToLower(strings.TrimSpace(amrResult.String()))
+			for _, method := range DefaultMFAMethods {
+				if val == method {
+					return true
+				}
+			}
+		}
+	}
+
+	acrResult := gjson.GetBytes(payload, "acr")
+	if acrResult.Exists() {
+		val := strings.ToLower(strings.TrimSpace(acrResult.String()))
+		for _, level := range DefaultMFALevels {
+			if val == level {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// IsTokenMFA parses the token payload and returns true if MFA was verified (via amr or acr).
+func IsTokenMFA(token string) (bool, error) {
+	payload, err := extractPayload(token)
+	if err != nil {
+		return false, err
+	}
+	return hasMFAFromPayload(payload), nil
+}
+
 func IsTokenExpired(token string) (bool, error) {
 	expTime, err := extractExpTime(token)
 	if err != nil {

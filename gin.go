@@ -124,3 +124,93 @@ func (cl *Client) GinNeedRole(requiredRoles ...string) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// GinNeedMFA requires the caller to have completed Multi-Factor Authentication.
+func (cl *Client) GinNeedMFA() gin.HandlerFunc {
+	return cl.GinNeedRoleWithMFA()
+}
+
+// GinNeedRoleWithMFA requires the caller to possess at least one of the requiredRoles (if specified)
+// AND must have verified Multi-Factor Authentication (MFA) via AMR or ACR claims in the access token.
+func (cl *Client) GinNeedRoleWithMFA(requiredRoles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		accessToken, have := isHaveAccessToken(c.Request)
+		if !have {
+			slogging.L(c.Request.Context()).Warn("user have no access token in cookie or header",
+				slogging.StringAttr("url", c.Request.URL.String()))
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+
+		expired, err := IsTokenExpired(accessToken)
+		if err != nil {
+			slog.Error("failed to get token expired",
+				slogging.ErrAttr(err))
+			c.Redirect(http.StatusFound, cl.RedirectURL)
+			c.Abort()
+			return
+		}
+
+		if expired {
+			refreshToken, haveRefresh := isHaveRefreshToken(c.Request)
+			if haveRefresh {
+				token, err := cl.RefreshToken(refreshToken)
+				if err == nil {
+					setupCookie(c.Writer, token)
+					accessToken = token.AccessToken
+					expired = false
+				} else {
+					slog.Error("failed to refresh token", slogging.ErrAttr(err))
+				}
+			}
+
+			if expired {
+				tokenURL := fmt.Sprintf("%s/auth/realms/%s/protocol/openid-connect/token", cl.BaseURL, cl.Realm)
+				c.Redirect(http.StatusFound, tokenURL)
+				c.Abort()
+				return
+			}
+		}
+
+		userRoles, err := introspectTokenRoles(accessToken, cl.ClientID)
+		if err != nil {
+			slogging.L(c.Request.Context()).Warn("failed to get user roles",
+				slogging.ErrAttr(err),
+			)
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+
+		username, err := extractUsername(accessToken)
+		if err != nil {
+			slogging.L(c.Request.Context()).Warn("failed to extract username",
+				slogging.ErrAttr(err))
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+
+		if len(requiredRoles) > 0 && !isHaveRole(userRoles, requiredRoles) {
+			slogging.L(c.Request.Context()).Warn("user does not have required role",
+				slogging.AnyAttr("required_roles", requiredRoles),
+				slogging.AnyAttr("user_roles", userRoles))
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
+
+		hasMFA, err := IsTokenMFA(accessToken)
+		if err != nil || !hasMFA {
+			slogging.L(c.Request.Context()).Warn("user does not have MFA",
+				slogging.StringAttr("username", username),
+				slogging.StringAttr("url", c.Request.URL.String()))
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error":   "mfa_required",
+				"message": "multi-factor authentication is required for this operation",
+			})
+			return
+		}
+
+		c.Set("username", username)
+		c.Request = c.Request.WithContext(context.WithValue(c, "username", username))
+		c.Next()
+	}
+}
