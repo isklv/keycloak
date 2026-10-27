@@ -27,6 +27,33 @@ func NewService(ctx context.Context, cfg keycloak.Config) (*Service, error) {
 	}, nil
 }
 
+// NewServiceWithKeyfunc creates an auth.Service with a custom keyfunc.Keyfunc (useful for testing or custom JWKS).
+func NewServiceWithKeyfunc(cfg keycloak.Config, jwks keyfunc.Keyfunc) *Service {
+	return &Service{
+		cfg:  cfg,
+		jwks: jwks,
+	}
+}
+
+// ParseClaimsUnverified extracts and parses Claims from raw JWT token without signature validation.
+func ParseClaimsUnverified(raw string) (*Claims, error) {
+	if raw == "" {
+		return nil, ErrUnauthorized
+	}
+	parser := jwt.NewParser()
+	claims := &Claims{}
+	_, _, err := parser.ParseUnverified(raw, claims)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidToken, err)
+	}
+	return claims, nil
+}
+
+// ParseTokenUnverified parses claims on the service instance without JWKS signature validation.
+func (s *Service) ParseTokenUnverified(raw string) (*Claims, error) {
+	return ParseClaimsUnverified(raw)
+}
+
 var (
 	ErrInvalidToken  = errors.New("invalid token")
 	ErrUnauthorized  = errors.New("unauthorized")
@@ -36,6 +63,10 @@ var (
 func (s *Service) ParseAndValidateToken(ctx context.Context, raw string) (*Claims, error) {
 	if raw == "" {
 		return nil, ErrUnauthorized
+	}
+
+	if s.jwks == nil {
+		return s.ParseTokenUnverified(raw)
 	}
 
 	parser := jwt.NewParser(

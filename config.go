@@ -3,6 +3,9 @@ package keycloak
 import "strings"
 
 type Config struct {
+	// BaseURL is an alias for AuthURL for backward compatibility with v1.
+	BaseURL string
+
 	// AuthURL is the base URL for the Keycloak server.
 	// Used for both user-facing (issuer) and backend (token/JWKS) calls.
 	AuthURL string
@@ -25,17 +28,24 @@ type Config struct {
 	AuthorizedParties []string
 }
 
+func (c Config) authURL() string {
+	if c.AuthURL != "" {
+		return strings.TrimRight(c.AuthURL, "/")
+	}
+	return strings.TrimRight(c.BaseURL, "/")
+}
+
 // backendBase returns the base URL for backend calls (token, JWKS).
-// Falls back to AuthURL if BackendAuthURL is not set.
+// Falls back to AuthURL or BaseURL if BackendAuthURL is not set.
 func (c Config) backendBase() string {
 	if c.BackendAuthURL != "" {
 		return strings.TrimRight(c.BackendAuthURL, "/")
 	}
-	return strings.TrimRight(c.AuthURL, "/")
+	return c.authURL()
 }
 
 func (c Config) Issuer() string {
-	return strings.TrimRight(c.AuthURL, "/") + "/realms/" + c.Realm
+	return c.authURL() + "/realms/" + c.Realm
 }
 
 func (c Config) IssuerBackend() string {
