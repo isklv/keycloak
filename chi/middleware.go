@@ -172,6 +172,114 @@ func (m *Middleware) RequireAnyClientRole(roles ...string) func(next http.Handle
 	}
 }
 
+// RequireMFA ensures the authenticated user has verified with multi-factor authentication (MFA).
+// Returns 403 Forbidden if MFA claims are not present.
+func (m *Middleware) RequireMFA() func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := auth.FromContext(r.Context())
+			if !ok || claims == nil {
+				slogging.L(r.Context()).Debug("RequireMFA: no claims in context")
+				http.Error(w, "forbidden — missing authentication context", http.StatusForbidden)
+				return
+			}
+
+			slogging.L(r.Context()).Debug("RequireMFA",
+				slogging.AnyAttr("amr", claims.AMR),
+				slogging.StringAttr("acr", claims.ACR),
+				slogging.AnyAttr("has_mfa", claims.HasMFA()))
+
+			if !claims.HasMFA() {
+				http.Error(w, "forbidden — multi-factor authentication (MFA) required", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireAnyAMR ensures the authenticated user used at least one of the specified
+// authentication methods (e.g. "otp", "fido2", "hwk").
+func (m *Middleware) RequireAnyAMR(methods ...string) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := auth.FromContext(r.Context())
+			if !ok || claims == nil {
+				slogging.L(r.Context()).Debug("RequireAnyAMR: no claims in context")
+				http.Error(w, fmt.Sprintf("forbidden — missing required authentication method: %s", strings.Join(methods, ", ")),
+					http.StatusForbidden)
+				return
+			}
+
+			if !claims.HasAnyAMR(methods...) {
+				slogging.L(r.Context()).Debug("RequireAnyAMR failed",
+					slogging.StringAttr("required", strings.Join(methods, ", ")),
+					slogging.AnyAttr("have", claims.AMR))
+				http.Error(w, fmt.Sprintf("forbidden — missing required authentication method: %s (have: %s)",
+					strings.Join(methods, ", "), strings.Join(claims.AMR, ", ")),
+					http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireACR ensures the token has one of the specified Authentication Context Class Reference (acr) values.
+func (m *Middleware) RequireACR(levels ...string) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := auth.FromContext(r.Context())
+			if !ok || claims == nil {
+				slogging.L(r.Context()).Debug("RequireACR: no claims in context")
+				http.Error(w, fmt.Sprintf("forbidden — missing required authentication context class: %s", strings.Join(levels, ", ")),
+					http.StatusForbidden)
+				return
+			}
+
+			if !claims.HasACR(levels...) {
+				slogging.L(r.Context()).Debug("RequireACR failed",
+					slogging.StringAttr("required", strings.Join(levels, ", ")),
+					slogging.StringAttr("have", claims.ACR))
+				http.Error(w, fmt.Sprintf("forbidden — missing required authentication context class: %s (have: %s)",
+					strings.Join(levels, ", "), claims.ACR),
+					http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireRealmRoleWithMFA requires a specific realm role AND multi-factor authentication.
+func (m *Middleware) RequireRealmRoleWithMFA(role string) func(next http.Handler) http.Handler {
+	return m.RequireAnyRealmRoleWithMFA(role)
+}
+
+// RequireAnyRealmRoleWithMFA requires at least one of the specified realm roles AND multi-factor authentication.
+func (m *Middleware) RequireAnyRealmRoleWithMFA(roles ...string) func(next http.Handler) http.Handler {
+	roleMW := m.RequireAnyRealmRole(roles...)
+	mfaMW := m.RequireMFA()
+	return func(next http.Handler) http.Handler {
+		return roleMW(mfaMW(next))
+	}
+}
+
+// RequireClientRoleWithMFA requires a specific client role AND multi-factor authentication.
+func (m *Middleware) RequireClientRoleWithMFA(role string) func(next http.Handler) http.Handler {
+	return m.RequireAnyClientRoleWithMFA(role)
+}
+
+// RequireAnyClientRoleWithMFA requires at least one of the specified client roles AND multi-factor authentication.
+func (m *Middleware) RequireAnyClientRoleWithMFA(roles ...string) func(next http.Handler) http.Handler {
+	clientRoleMW := m.RequireAnyClientRole(roles...)
+	mfaMW := m.RequireMFA()
+	return func(next http.Handler) http.Handler {
+		return clientRoleMW(mfaMW(next))
+	}
+}
+
+
 func (m *Middleware) clearAuthCookie() *http.Cookie {
 	cookie := m.flow.CookieConfig()
 	return &http.Cookie{

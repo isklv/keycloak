@@ -208,6 +208,17 @@ graph LR
 - Checks `claims.ResourceAccess[clientID].Roles`
 - Returns 403 Forbidden if none match
 
+**6. `Middleware.RequireMFA()`**
+- Checks whether the authenticated user completed multi-factor authentication (`claims.HasMFA()`)
+- Validates RFC 8176 `amr` claim (e.g. `otp`, `fido2`, `webauthn`, `sms`, `hwk`) or `acr` level (e.g. `mfa`, `gold`, `2`)
+- Returns 403 Forbidden (`"forbidden — multi-factor authentication (MFA) required"`) if MFA was not performed
+
+**7. `Middleware.RequireAnyAMR(methods...)` / `Middleware.RequireACR(levels...)`**
+- Fine-grained check of specific authentication methods (`amr`) or assurance context classes (`acr`)
+
+**8. `Middleware.RequireRealmRoleWithMFA(...)` / `Middleware.RequireClientRoleWithMFA(...)`**
+- Chains role checking with mandatory multi-factor authentication verification in a single call
+
 ---
 
 ## Data Structures
@@ -216,15 +227,17 @@ graph LR
 
 ```go
 type Claims struct {
-    PreferredUsername string `json:"preferred_username"`
-    Email             string `json:"email"`
+    PreferredUsername string   `json:"preferred_username"`
+    Email             string   `json:"email"`
     RealmAccess       struct {
         Roles []string `json:"roles"`
     } `json:"realm_access"`
     ResourceAccess map[string]struct {
         Roles []string `json:"roles"`
     } `json:"resource_access"`
-    AuthorizedParty string `json:"azp"`  // For client_credentials
+    AuthorizedParty   string   `json:"azp,omitempty"`  // For client_credentials / azp validation
+    AMR               AMRClaim `json:"amr,omitempty"`  // RFC 8176 Authentication Method References
+    ACR               string   `json:"acr,omitempty"`  // Authentication Context Class Reference
     jwt.RegisteredClaims
 }
 ```
@@ -367,4 +380,4 @@ keycloak/
 
 ---
 
-*Updated: 2026-10-08 | Version: v2.2.3*
+*Updated: 2026-10-27 | Version: v2.3.0*
