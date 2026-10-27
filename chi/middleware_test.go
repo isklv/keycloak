@@ -1364,3 +1364,316 @@ func Test_isAJAXRequest(t *testing.T) {
 		})
 	}
 }
+
+func TestMiddleware_RequireMFA(t *testing.T) {
+	mockAS := &auth.Service{}
+	cfg := keycloak.Config{
+		AuthURL:  "http://localhost:8080/auth",
+		Realm:    "test",
+		ClientID: "web",
+	}
+	flow := webflow.New(cfg, webflow.CookieConfig{}, "/login", "http://localhost/callback", nil)
+	mw := New(mockAS, cfg, flow)
+
+	dummyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	t.Run("NoClaimsInContext_Returns403", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/secure", nil)
+		w := httptest.NewRecorder()
+
+		mw.RequireMFA()(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("Expected 403 Forbidden, got %d", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "missing authentication context") {
+			t.Errorf("Unexpected body: %s", w.Body.String())
+		}
+	})
+
+	t.Run("NoMFA_Returns403", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/secure", nil)
+		claims := &auth.Claims{
+			PreferredUsername: "alice",
+			AMR:               auth.AMRClaim{"pwd"},
+			ACR:               "1",
+		}
+		req = req.WithContext(auth.WithClaims(req.Context(), claims))
+		w := httptest.NewRecorder()
+
+		mw.RequireMFA()(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("Expected 403 Forbidden, got %d", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "forbidden — multi-factor authentication (MFA) required") {
+			t.Errorf("Unexpected body: %s", w.Body.String())
+		}
+	})
+
+	t.Run("WithAMROTP_Passes", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/secure", nil)
+		claims := &auth.Claims{
+			PreferredUsername: "alice",
+			AMR:               auth.AMRClaim{"pwd", "otp"},
+		}
+		req = req.WithContext(auth.WithClaims(req.Context(), claims))
+		w := httptest.NewRecorder()
+
+		mw.RequireMFA()(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected 200 OK, got %d", w.Code)
+		}
+	})
+
+	t.Run("WithAMRFIDO2_Passes", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/secure", nil)
+		claims := &auth.Claims{
+			PreferredUsername: "alice",
+			AMR:               auth.AMRClaim{"pwd", "fido2"},
+		}
+		req = req.WithContext(auth.WithClaims(req.Context(), claims))
+		w := httptest.NewRecorder()
+
+		mw.RequireMFA()(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected 200 OK, got %d", w.Code)
+		}
+	})
+
+	t.Run("WithACRMFA_Passes", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/secure", nil)
+		claims := &auth.Claims{
+			PreferredUsername: "alice",
+			ACR:               "mfa",
+		}
+		req = req.WithContext(auth.WithClaims(req.Context(), claims))
+		w := httptest.NewRecorder()
+
+		mw.RequireMFA()(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected 200 OK, got %d", w.Code)
+		}
+	})
+}
+
+func TestMiddleware_RequireAnyAMR(t *testing.T) {
+	mockAS := &auth.Service{}
+	cfg := keycloak.Config{Realm: "test"}
+	flow := webflow.New(cfg, webflow.CookieConfig{}, "/login", "http://localhost/callback", nil)
+	mw := New(mockAS, cfg, flow)
+
+	dummyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	t.Run("MatchingMethod_Passes", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/secure", nil)
+		claims := &auth.Claims{
+			AMR: auth.AMRClaim{"pwd", "otp"},
+		}
+		req = req.WithContext(auth.WithClaims(req.Context(), claims))
+		w := httptest.NewRecorder()
+
+		mw.RequireAnyAMR("otp", "fido2")(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected 200 OK, got %d", w.Code)
+		}
+	})
+
+	t.Run("MissingMethod_Returns403", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/secure", nil)
+		claims := &auth.Claims{
+			AMR: auth.AMRClaim{"pwd"},
+		}
+		req = req.WithContext(auth.WithClaims(req.Context(), claims))
+		w := httptest.NewRecorder()
+
+		mw.RequireAnyAMR("otp", "fido2")(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("Expected 403 Forbidden, got %d", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "missing required authentication method: otp, fido2") {
+			t.Errorf("Unexpected body: %s", w.Body.String())
+		}
+	})
+}
+
+func TestMiddleware_RequireACR(t *testing.T) {
+	mockAS := &auth.Service{}
+	cfg := keycloak.Config{Realm: "test"}
+	flow := webflow.New(cfg, webflow.CookieConfig{}, "/login", "http://localhost/callback", nil)
+	mw := New(mockAS, cfg, flow)
+
+	dummyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	t.Run("MatchingLevel_Passes", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/secure", nil)
+		claims := &auth.Claims{
+			ACR: "gold",
+		}
+		req = req.WithContext(auth.WithClaims(req.Context(), claims))
+		w := httptest.NewRecorder()
+
+		mw.RequireACR("gold", "mfa")(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected 200 OK, got %d", w.Code)
+		}
+	})
+
+	t.Run("MissingLevel_Returns403", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/secure", nil)
+		claims := &auth.Claims{
+			ACR: "silver",
+		}
+		req = req.WithContext(auth.WithClaims(req.Context(), claims))
+		w := httptest.NewRecorder()
+
+		mw.RequireACR("gold", "mfa")(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("Expected 403 Forbidden, got %d", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "missing required authentication context class: gold, mfa") {
+			t.Errorf("Unexpected body: %s", w.Body.String())
+		}
+	})
+}
+
+func TestMiddleware_RequireRolesWithMFA(t *testing.T) {
+	mockAS := &auth.Service{}
+	cfg := keycloak.Config{
+		Realm:    "test",
+		ClientID: "web",
+	}
+	flow := webflow.New(cfg, webflow.CookieConfig{}, "/login", "http://localhost/callback", nil)
+	mw := New(mockAS, cfg, flow)
+
+	dummyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	t.Run("RealmRoleWithMFA_Success", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/admin", nil)
+		claims := &auth.Claims{
+			RealmAccess: struct {
+				Roles []string `json:"roles"`
+			}{
+				Roles: []string{"editor"},
+			},
+			AMR: auth.AMRClaim{"pwd", "otp"},
+		}
+		req = req.WithContext(auth.WithClaims(req.Context(), claims))
+		w := httptest.NewRecorder()
+
+		mw.RequireRealmRoleWithMFA("editor")(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected 200 OK, got %d", w.Code)
+		}
+	})
+
+	t.Run("RealmRoleWithMFA_MissingMFA", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/admin", nil)
+		claims := &auth.Claims{
+			RealmAccess: struct {
+				Roles []string `json:"roles"`
+			}{
+				Roles: []string{"editor"},
+			},
+			AMR: auth.AMRClaim{"pwd"},
+		}
+		req = req.WithContext(auth.WithClaims(req.Context(), claims))
+		w := httptest.NewRecorder()
+
+		mw.RequireRealmRoleWithMFA("editor")(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("Expected 403 Forbidden, got %d", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "multi-factor authentication (MFA) required") {
+			t.Errorf("Unexpected body: %s", w.Body.String())
+		}
+	})
+
+	t.Run("RealmRoleWithMFA_MissingRole", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/admin", nil)
+		claims := &auth.Claims{
+			RealmAccess: struct {
+				Roles []string `json:"roles"`
+			}{
+				Roles: []string{"viewer"},
+			},
+			AMR: auth.AMRClaim{"pwd", "otp"},
+		}
+		req = req.WithContext(auth.WithClaims(req.Context(), claims))
+		w := httptest.NewRecorder()
+
+		mw.RequireRealmRoleWithMFA("editor")(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("Expected 403 Forbidden, got %d", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "missing required realm role: editor") {
+			t.Errorf("Unexpected body: %s", w.Body.String())
+		}
+	})
+
+	t.Run("ClientRoleWithMFA_Success", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/admin", nil)
+		claims := &auth.Claims{
+			ResourceAccess: map[string]struct {
+				Roles []string `json:"roles"`
+			}{
+				"web": {
+					Roles: []string{"publisher"},
+				},
+			},
+			ACR: "mfa",
+		}
+		req = req.WithContext(auth.WithClaims(req.Context(), claims))
+		w := httptest.NewRecorder()
+
+		mw.RequireClientRoleWithMFA("publisher")(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected 200 OK, got %d", w.Code)
+		}
+	})
+
+	t.Run("ClientRoleWithMFA_MissingMFA", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/admin", nil)
+		claims := &auth.Claims{
+			ResourceAccess: map[string]struct {
+				Roles []string `json:"roles"`
+			}{
+				"web": {
+					Roles: []string{"publisher"},
+				},
+			},
+			ACR: "1",
+		}
+		req = req.WithContext(auth.WithClaims(req.Context(), claims))
+		w := httptest.NewRecorder()
+
+		mw.RequireClientRoleWithMFA("publisher")(dummyHandler).ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("Expected 403 Forbidden, got %d", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "multi-factor authentication (MFA) required") {
+			t.Errorf("Unexpected body: %s", w.Body.String())
+		}
+	})
+}
+

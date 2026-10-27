@@ -5,6 +5,14 @@ go get -u github.com/isklv/keycloak/v2
 
 ## Changelog
 
+### v2.3.0
+- **Feature (MFA / 2FA Support):** Multi-Factor Authentication enforcement and token inspection:
+  - Added RFC 8176 `AMRClaim` (Authentication Methods References) and `ACR` (Authentication Context Class Reference) to `auth.Claims` with resilient array/string JSON decoding.
+  - Added helper methods on `auth.Claims`: `HasMFA()`, `HasAMR(method)`, `HasAnyAMR(methods...)`, `HasACR(levels...)`.
+  - Added `chi.Middleware.RequireMFA()`: restricts routes to users authenticated via MFA (OTP, FIDO2, WebAuthn, hardware key, SMS, etc.).
+  - Added `chi.Middleware.RequireAnyAMR(methods...)` and `chi.Middleware.RequireACR(levels...)` for fine-grained authentication method or context class verification.
+  - Added `RequireRealmRoleWithMFA(...)` and `RequireClientRoleWithMFA(...)` for combining role checking with mandatory second-factor verification in a single middleware.
+
 ### v2.2.3
 - **Feature (External Domain Redirects):** Supported redirects to external domains after authentication:
   - `WithAllowedRedirectHosts(hosts ...string)` allows whitelisting allowed external redirect domains or wildcards (e.g. `"*.example.com"`, `"frontend.com"`, `"localhost:3000"`).
